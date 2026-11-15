@@ -66,7 +66,8 @@ permissions: public contribution data is readable by any installation.
    - **Permissions**: leave everything at **No access**.
    - **Where can this GitHub App be installed?**: **Only on this account**.
 3. Click **Create GitHub App** and note the **Client ID** (`Iv23li...`).
-4. Under **Private keys**, click **Generate a private key**; a `.pem` file downloads.
+4. Under **Credentials** → **Key pairs** (not Client secrets), click **New key**;
+   a `.pem` file downloads.
 5. Click **Install App** in the sidebar and install it on your account
    (if asked for repositories, any single one will do). The Worker finds the
    installation itself, so the App must have exactly one installation.
