@@ -24,10 +24,11 @@ const params = v.object({
   file: v.pipe(
     v.string(),
     // GitHub logins: alphanumerics and single hyphens, no leading/trailing hyphen, max 39.
-    v.regex(/^[a-z\d](?:[a-z\d]|-(?=[a-z\d])){0,38}\.(?:svg|html)$/i),
+    // No extension serves the HTML page; ".html" is redirected there.
+    v.regex(/^[a-z\d](?:[a-z\d]|-(?=[a-z\d])){0,38}(?:\.svg|\.html)?$/i),
     v.transform((file) => {
-      const dot = file.lastIndexOf(".");
-      return { username: file.slice(0, dot).toLowerCase(), ext: file.slice(dot + 1).toLowerCase() };
+      const [name, ext] = file.toLowerCase().split(".");
+      return { username: name!, svg: ext === "svg" };
     }),
   ),
 });
@@ -48,15 +49,18 @@ const app = new Hono<Env>()
     vValidator("param", params, invalid),
     vValidator("query", query, invalid),
     async (c) => {
-      const { username, ext } = c.req.valid("param").file;
+      const { username, svg } = c.req.valid("param").file;
       const { theme } = c.req.valid("query");
 
       // The edge cache is keyed by URL, so letter case and extra parameters are
       // redirected to one canonical URL instead of being cached separately.
       const url = new URL(c.req.url);
-      const canonical = `/api/${username}.${ext}${theme === "dark" ? "?theme=dark" : ""}`;
+      const canonical = `/api/${username}${svg ? ".svg" : ""}${theme === "dark" ? "?theme=dark" : ""}`;
       if (url.pathname + url.search !== canonical) {
         return c.redirect(canonical, 301);
+      }
+      if (!svg) {
+        return c.html(renderHtml(username, theme), 200, CACHE_HEADERS);
       }
 
       if (!(await c.env.RATE_LIMITER.limit({ key: username })).success) {
@@ -70,9 +74,8 @@ const app = new Hono<Env>()
           privateKey: c.env.GITHUB_APP_PRIVATE_KEY,
         });
         const days = await fetchCalendar(token, username, start, end);
-        const html = ext === "html";
-        return c.body(html ? renderHtml(username, days, theme) : renderSvg(days, theme), 200, {
-          "Content-Type": html ? "text/html; charset=utf-8" : "image/svg+xml; charset=utf-8",
+        return c.body(renderSvg(days, theme), 200, {
+          "Content-Type": "image/svg+xml; charset=utf-8",
           ...CACHE_HEADERS,
         });
       } catch (error) {

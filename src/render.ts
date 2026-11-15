@@ -36,8 +36,8 @@ export function tooltip({ date, count }: Day) {
   return `${count} contribution${count === 1 ? "" : "s"} on ${when}`;
 }
 
-// Runs when the SVG is opened directly or inlined in the HTML page (<img> never runs
-// scripts), so it finds its <svg> through the tooltip rather than the document. Shows a
+// Runs when the SVG is opened directly or embedded by the HTML page (<img> never runs
+// scripts). Shows a
 // GitHub-style tooltip on hover or tap instead of the slow, touch-less native <title>,
 // above the cell, or below it when there is no room at the top of the image.
 const TOOLTIP_SCRIPT = `<![CDATA[
@@ -123,15 +123,23 @@ ${legendCells.join("\n")}
 </svg>`;
 }
 
-/** The SVG inlined in a mobile-friendly page that scrolls sideways to the latest week, as on GitHub. */
-export function renderHtml(username: string, days: Day[], theme: Theme) {
+/**
+ * A phone-sized page that scrolls sideways to the latest week, as on GitHub. It embeds
+ * the SVG URL rather than the SVG, so the page needs no data and shares the SVG's cache.
+ */
+export function renderHtml(username: string, theme: Theme) {
+  const svgUrl = `/api/${username}.svg${theme === "dark" ? "?theme=dark" : ""}`;
   return `<!doctype html>
 <html lang="en">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escapeXml(username)}'s contributions</title>
-<style>body{margin:0;padding:16px;background:${themes[theme].page}}div{overflow-x:auto}svg{display:block}</style>
-<div>${renderSvg(days, theme)}</div>
-<script>const d = document.querySelector("div"); d.scrollLeft = d.scrollWidth;</script>
+<style>body{margin:0;padding:16px;background:${themes[theme].page}}div{overflow-x:auto}object{display:block}</style>
+<div><object type="image/svg+xml" data="${escapeXml(svgUrl)}" onload="this.parentNode.scrollLeft = this.parentNode.scrollWidth">${escapeXml(username)}'s contribution graph</object></div>
+<script>
+// Taps inside the graph stay in its document; hide its tooltip on taps outside it.
+document.addEventListener("pointerdown", () =>
+  document.querySelector("object").contentDocument?.getElementById("tip")?.setAttribute("visibility", "hidden"));
+</script>
 </html>`;
 }

@@ -17,15 +17,16 @@ that looks like the one on their GitHub profile, for embedding in READMEs.
 | `theme`   | `light`, `dark` | `light` |
 
 Opening the SVG directly shows per-day tooltips; images embedded in a README are static.
-`/api/<username>.html` (same `theme` parameter) serves the graph in a page sized
-for phones that scrolls sideways to the latest week, like the graph on GitHub.
+`/api/<username>` (same `theme` parameter) serves a page sized for phones that
+embeds the SVG and scrolls sideways to the latest week, like the graph on GitHub.
+It shares the SVG's cache and never calls GitHub itself.
 
 URLs are normalized for caching: an uppercase username, `theme=light` or unknown
 query parameters get a `301` redirect to the canonical URL.
 
 | Status    | Meaning                                       |
 | --------- | --------------------------------------------- |
-| 200       | SVG, or HTML for `.html`                      |
+| 200       | SVG, or HTML without `.svg`                   |
 | 301       | Redirect to the canonical URL                 |
 | 400       | Invalid username or parameter                 |
 | 404       | GitHub user not found                         |
@@ -36,7 +37,7 @@ Error responses are never cached.
 
 ### Example
 
-<a href="https://ghgrass.polyfill.workers.dev/api/mkusaka.html">
+<a href="https://ghgrass.polyfill.workers.dev/api/mkusaka">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="https://ghgrass.polyfill.workers.dev/api/mkusaka.svg?theme=dark">
     <img alt="mkusaka's contribution graph" src="https://ghgrass.polyfill.workers.dev/api/mkusaka.svg">
@@ -47,7 +48,7 @@ Error responses are never cached.
 the link opens the HTML page, where hovering or tapping a day shows its count:
 
 ```html
-<a href="https://ghgrass.polyfill.workers.dev/api/mkusaka.html">
+<a href="https://ghgrass.polyfill.workers.dev/api/mkusaka">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="https://ghgrass.polyfill.workers.dev/api/mkusaka.svg?theme=dark">
     <img alt="mkusaka's contribution graph" src="https://ghgrass.polyfill.workers.dev/api/mkusaka.svg">

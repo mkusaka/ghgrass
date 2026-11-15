@@ -61,16 +61,20 @@ test("returns the graph as cacheable SVG", async () => {
   });
 });
 
-test("serves the graph inlined in a mobile-friendly HTML page", async () => {
-  stubGitHub();
-  const response = await app.request("/api/octocat.html?theme=dark", {}, env);
+test("serves a cacheable HTML page that embeds the SVG URL without calling GitHub", async () => {
+  const fetchMock = stubGitHub();
+  const response = await app.request("/api/octocat?theme=dark", {}, env);
   expect(response.status).toBe(200);
-  expect(response.headers.get("Content-Type")).toBe("text/html; charset=utf-8");
+  expect(response.headers.get("Content-Type")).toBe("text/html; charset=UTF-8");
+  expect(response.headers.get("Cloudflare-CDN-Cache-Control")).toBe(
+    "public, max-age=600, stale-while-revalidate=3600",
+  );
   const html = await response.text();
   expect(html).toContain('<meta name="viewport" content="width=device-width, initial-scale=1">');
   expect(html).toContain("<title>octocat's contributions</title>");
   expect(html).toContain("background:#0d1117");
-  expect(html).toContain("3 contributions on Nov 15, 2026");
+  expect(html).toContain('data="/api/octocat.svg?theme=dark"');
+  expect(fetchMock).not.toHaveBeenCalled();
 });
 
 test("renders the dark theme", async () => {
@@ -83,7 +87,8 @@ test.each([
   ["/api/Octocat.svg", "/api/octocat.svg"],
   ["/api/octocat.svg?theme=light", "/api/octocat.svg"],
   ["/api/octocat.svg?theme=dark&utm=x", "/api/octocat.svg?theme=dark"],
-  ["/api/Octocat.HTML?theme=light", "/api/octocat.html"],
+  ["/api/Octocat?theme=light", "/api/octocat"],
+  ["/api/octocat.html?theme=dark", "/api/octocat?theme=dark"],
 ])("redirects %s to the canonical URL", async (path, location) => {
   const fetchMock = stubGitHub();
   const response = await app.request(path, {}, env);
@@ -99,6 +104,7 @@ test.each([
   `/api/${"a".repeat(40)}.svg`,
   "/api/octocat.png",
   "/api/octocat.svg.html",
+  "/api/octo.cat",
   "/api/octocat.svg?theme=blue",
 ])("rejects %s with an uncached 400", async (path) => {
   const response = await app.request(path, {}, env);
