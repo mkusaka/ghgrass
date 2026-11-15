@@ -76,6 +76,7 @@ test("serves a cacheable HTML page that embeds the SVG URL without calling GitHu
   expect(html).toContain('data="/api/octocat.svg?theme=dark"');
   expect(html).toContain("color:#f0f6fc");
   expect(html).toContain("in the last year");
+  expect(html).toContain('<a href="/api/octocat">☀ Light</a>');
   expect(fetchMock).not.toHaveBeenCalled();
 });
 

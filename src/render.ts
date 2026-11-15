@@ -134,13 +134,15 @@ ${legendCells.join("\n")}
  */
 export function renderHtml(username: string, theme: Theme) {
   const svgUrl = `/api/${username}.svg${theme === "dark" ? "?theme=dark" : ""}`;
+  // A plain link to the other theme's canonical page, so each theme stays cacheable.
+  const toggle = theme === "dark" ? [`/api/${username}`, "☀ Light"] : [`/api/${username}?theme=dark`, "☾ Dark"];
   return `<!doctype html>
 <html lang="en">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escapeXml(username)}'s contributions</title>
-<style>body{margin:0;padding:16px;background:${themes[theme].page}}h2{margin:0 0 8px;min-height:24px;font:400 16px/24px ${FONT};color:${themes[theme].heading}}div{overflow-x:auto}object{display:block}</style>
-<h2></h2>
+<style>body{margin:0;padding:16px;background:${themes[theme].page}}header{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px}h2{margin:0;min-height:24px;font:400 16px/24px ${FONT};color:${themes[theme].heading}}a{font:12px ${FONT};color:${themes[theme].text};text-decoration:none;white-space:nowrap}div{overflow-x:auto}object{display:block}</style>
+<header><h2></h2><a href="${escapeXml(toggle[0]!)}">${toggle[1]}</a></header>
 <div><object type="image/svg+xml" data="${escapeXml(svgUrl)}" onload="loaded(this)">${escapeXml(username)}'s contribution graph</object></div>
 <script>
 function loaded(graph) {
