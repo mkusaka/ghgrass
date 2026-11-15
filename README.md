@@ -42,7 +42,7 @@ Error responses are never cached.
 </a>
 
 `<picture>` follows the viewer's GitHub theme. Images in a README are static, so
-the link opens the SVG itself, where hovering a day shows its count:
+the link opens the SVG itself, where hovering or tapping a day shows its count:
 
 ```html
 <a href="https://ghgrass.polyfill.workers.dev/api/mkusaka.svg">

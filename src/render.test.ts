@@ -59,6 +59,13 @@ describe("renderSvg", () => {
 
   test("is self-contained SVG 1.1", () => {
     expect(svg).toMatch(/^<svg xmlns="http:\/\/www.w3.org\/2000\/svg" version="1.1"/);
-    expect(svg).not.toMatch(/<script|href=|@import|url\(|var\(/);
+    expect(svg).not.toMatch(/<script [^>]*src=|href=|@import|url\(|var\(/);
+  });
+
+  test("embeds one inline tooltip script in the theme's tooltip color", () => {
+    expect(svg.match(/<script>/g)).toHaveLength(1);
+    expect(svg).toContain('<g id="tip" visibility="hidden"');
+    expect(svg).toContain('fill="#25292e"');
+    expect(renderSvg(year, "dark")).toContain('fill="#3d444d"');
   });
 });

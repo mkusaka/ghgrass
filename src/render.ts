@@ -36,6 +36,35 @@ export function tooltip({ date, count }: Day) {
   return `${count} contribution${count === 1 ? "" : "s"} on ${when}`;
 }
 
+// Runs only when the SVG is opened directly (<img> never runs scripts). Shows a
+// GitHub-style tooltip on hover or tap instead of the slow, touch-less native <title>,
+// above the cell, or below it when there is no room at the top of the image.
+const TOOLTIP_SCRIPT = `<![CDATA[
+const svg = document.documentElement, tip = document.getElementById("tip");
+const [bg, arrow, label] = tip.children, width = +svg.getAttribute("width");
+for (const title of document.querySelectorAll("rect > title")) {
+  title.parentNode.dataset.tip = title.textContent;
+  title.remove();
+}
+const hide = () => tip.setAttribute("visibility", "hidden");
+const show = (cell) => {
+  label.textContent = cell.dataset.tip;
+  const w = label.getComputedTextLength() + 16, h = 26;
+  const cx = +cell.getAttribute("x") + 4.5, top = +cell.getAttribute("y") - 0.5;
+  const below = top - h - 5 < 0, y = below ? top + 15 : top - h - 5;
+  const x = Math.min(Math.max(cx - w / 2, 0), width - w);
+  bg.setAttribute("x", x); bg.setAttribute("y", y);
+  bg.setAttribute("width", w); bg.setAttribute("height", h);
+  label.setAttribute("x", x + 8); label.setAttribute("y", y + 17);
+  const edge = below ? y : y + h, tipY = below ? y - 5 : y + h + 5;
+  arrow.setAttribute("d", "M" + (cx - 5) + " " + edge + "L" + cx + " " + tipY + "L" + (cx + 5) + " " + edge + "Z");
+  tip.setAttribute("visibility", "visible");
+};
+svg.addEventListener("pointerover", (e) => (e.target.dataset && e.target.dataset.tip ? show(e.target) : hide()));
+// A touch pointer "leaves" right after every tap; keep the tooltip until the next tap.
+svg.addEventListener("pointerleave", (e) => e.pointerType === "mouse" && hide());
+]]>`;
+
 /** Renders days (sorted, starting on a Sunday) as GitHub's contribution graph. */
 export function renderSvg(days: Day[], theme: Theme) {
   const colors = themes[theme];
@@ -86,5 +115,9 @@ ${DAY_LABELS.map(([row, label]) => `<text x="0" y="${GRID_Y + row * PITCH + 9}">
 ${cells.join("\n")}
 ${legendCells.join("\n")}
 </g>
+<g id="tip" visibility="hidden" pointer-events="none" font-family="${escapeXml(FONT)}" font-size="12">
+<rect rx="6" fill="${colors.tooltip}"/><path fill="${colors.tooltip}"/><text fill="#ffffff"/>
+</g>
+<script>${TOOLTIP_SCRIPT}</script>
 </svg>`;
 }
