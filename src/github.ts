@@ -138,17 +138,29 @@ export async function fetchCalendar(
   return requests > 1 ? relevel(days) : days;
 }
 
+// Outlier z-score threshold, from https://github.com/akerl/githubstats.
+const OUTLIER_Z = 3.77972616981;
+
 /**
  * GitHub computes levels relative to the requested range, so levels from split
  * requests disagree with each other and are recomputed over the whole range.
  *
- * ponytail: GitHub's rule is undocumented. Its levels behave like quarters of a cap
- * that ignores a few outlier days; using the third-largest count as that cap
- * mismatched 63 of 2190 days across six sampled public profiles (plain maximum:
- * 184). Revisit if GitHub documents the algorithm.
+ * GitHub's undocumented rule, as reverse-engineered by akerl/githubstats: counts
+ * more than OUTLIER_Z sample standard deviations from the mean are outliers; the
+ * first 3 distinct outlier counts in date order (only 1 when the maximum is small)
+ * are ignored, and levels are quarters of the largest remaining count. Unlike
+ * githubstats, outliers apply even with fewer than 5 distinct counts. This matched
+ * every level of 206 GraphQL ranges (23,679 days) from 36 public profiles.
  */
 export function relevel(days: Day[]): Day[] {
-  const cap = [...days.map((day) => day.count)].sort((a, b) => b - a).slice(0, 3).at(-1) ?? 0;
+  const counts = days.map((day) => day.count);
+  const n = counts.length;
+  const mean = counts.reduce((sum, count) => sum + count, 0) / n;
+  const sd = Math.sqrt(counts.reduce((sum, count) => sum + (count - mean) ** 2, 0) / (n - 1));
+  const max = Math.max(...counts);
+  const outliers = [...new Set(counts.filter((count) => Math.abs(count - mean) / sd > OUTLIER_Z))]
+    .slice(0, max - mean < 6 || max < 15 ? 1 : 3);
+  const cap = Math.max(0, ...counts.filter((count) => !outliers.includes(count)));
   return days.map((day) => ({
     ...day,
     level: (day.count === 0 ? 0 : Math.min(4, Math.ceil((day.count * 4) / cap))) as Level,

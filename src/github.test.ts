@@ -121,13 +121,42 @@ describe("fetchCalendar", () => {
 });
 
 describe("relevel", () => {
-  test("matches GitHub's levels for a sampled public profile", () => {
-    // Level boundaries GitHub returned for one profile: 1-37, 38-70, 77-103, 119+.
-    const sample: [number, number][] = [
-      [0, 0], [1, 1], [37, 1], [38, 2], [70, 2], [77, 3], [103, 3], [119, 4], [150, 4], [188, 4], [383, 4],
+  // Counts and levels GitHub's GraphQL API returned for real public ranges.
+  const levelsOf = (first: string, counts: number[]) =>
+    relevel(
+      counts.map((count, i) => ({
+        date: new Date(Date.parse(first) + i * DAY_MS).toISOString().slice(0, 10),
+        count,
+        level: 0,
+      })),
+    )
+      .map((day) => day.level)
+      .join("");
+
+  test("ignores the first outliers in date order", () => {
+    // torvalds, 2026-02-01..2026-03-31: 47 and 45 are outliers, so the cap is 28.
+    const counts = [
+      6, 2, 3, 5, 6, 10, 5, 2, 47, 45, 28, 25, 9, 9, 7, 10, 15, 8, 2, 21, 13, 6, 2, 2, 3, 10, 11, 6, 10, 1,
+      3, 5, 5, 19, 12, 3, 0, 2, 2, 6, 16, 6, 11, 2, 3, 5, 5, 15, 4, 9, 1, 6, 4, 8, 18, 4, 13, 5, 4,
     ];
-    const days: Day[] = sample.map(([count], i) => ({ date: `2026-01-${10 + i}`, count, level: 0 }));
-    expect(relevel(days).map((day) => day.level)).toEqual(sample.map(([, level]) => level));
+    expect(levelsOf("2026-02-01", counts)).toBe(
+      "11111211444422123213211112212111132101113121111312111231211",
+    );
+  });
+
+  test("ignores a single outlier when counts are small", () => {
+    // getify, 2025-11-27..2026-01-10: only 4 is ignored, so the cap is 2.
+    const counts = [
+      1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 1, 0, 2, 0, 0, 0, 1, 0, 0, 2, 1, 1, 0, 0, 0, 2, 0, 4,
+      0, 1, 2, 0, 1, 0, 0, 0, 0, 0, 0,
+    ];
+    expect(levelsOf("2025-11-27", counts)).toBe("200200000000000420400020042200040402402000000");
+  });
+
+  test("keeps a large day that comes after the first 3 outliers", () => {
+    // Synthetic: 300 is the 4th outlier by date, so it stays and becomes the cap.
+    const counts = [...Array<number>(400).fill(5), 160, 170, 180, 300];
+    expect(levelsOf("2026-01-01", counts).slice(-4)).toBe("3334");
   });
 
   test("keeps every level at 0 without contributions", () => {
