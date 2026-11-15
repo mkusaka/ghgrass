@@ -100,12 +100,17 @@ export function renderSvg(days: Day[], theme: Theme) {
     return cell(x, y, day.level, tooltip(day));
   });
 
+  // GitHub's "in the last year" total: from the same date a year before the last day.
+  const last = days.at(-1)?.date ?? "";
+  const yearAgo = `${Number(last.slice(0, 4)) - 1}${last.slice(4)}`;
+  const total = days.reduce((sum, day) => (day.date >= yearAgo ? sum + day.count : sum), 0);
+
   const legendEnd = width - MORE_WIDTH;
   const legendCells = [0, 1, 2, 3, 4].map((level) =>
     cell(legendEnd - (5 - level) * (CELL + 4), legendY, level),
   );
 
-  return `<svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+  return `<svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" data-total="${total}">
 <g font-family="${escapeXml(FONT)}" font-size="12" fill="${colors.text}">
 ${months.join("\n")}
 ${DAY_LABELS.map(([row, label]) => `<text x="0" y="${GRID_Y + row * PITCH + 9}">${label}</text>`).join("\n")}
@@ -134,9 +139,17 @@ export function renderHtml(username: string, theme: Theme) {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escapeXml(username)}'s contributions</title>
-<style>body{margin:0;padding:16px;background:${themes[theme].page}}div{overflow-x:auto}object{display:block}</style>
-<div><object type="image/svg+xml" data="${escapeXml(svgUrl)}" onload="this.parentNode.scrollLeft = this.parentNode.scrollWidth">${escapeXml(username)}'s contribution graph</object></div>
+<style>body{margin:0;padding:16px;background:${themes[theme].page}}h2{margin:0 0 8px;min-height:24px;font:400 16px/24px ${FONT};color:${themes[theme].heading}}div{overflow-x:auto}object{display:block}</style>
+<h2></h2>
+<div><object type="image/svg+xml" data="${escapeXml(svgUrl)}" onload="loaded(this)">${escapeXml(username)}'s contribution graph</object></div>
 <script>
+function loaded(graph) {
+  graph.parentNode.scrollLeft = graph.parentNode.scrollWidth;
+  // The SVG carries the total, so the page itself needs no data.
+  const total = graph.contentDocument?.documentElement.getAttribute("data-total");
+  if (total) document.querySelector("h2").textContent =
+    \`\${Number(total).toLocaleString("en-US")} contribution\${total === "1" ? "" : "s"} in the last year\`;
+}
 // Taps inside the graph stay in its document; hide its tooltip on taps outside it.
 document.addEventListener("pointerdown", () =>
   document.querySelector("object").contentDocument?.getElementById("tip")?.setAttribute("visibility", "hidden"));

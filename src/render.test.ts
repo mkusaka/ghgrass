@@ -50,6 +50,14 @@ describe("renderSvg", () => {
     expect(labels.every(([, x]) => Number(x) <= 717 - 26)).toBe(true);
   });
 
+  test("carries the total of the last year, from the same date a year ago", () => {
+    // The last day is 2026-11-15, so days from 2025-11-15 on count.
+    const total = year.reduce((sum, day) => sum + day.count, 0);
+    expect(svg).toContain(`data-total="${total}"`);
+    const longer = [{ date: "2025-11-14", count: 1000, level: 4 as Level }, ...year];
+    expect(renderSvg(longer, "light")).toContain(`data-total="${total}"`);
+  });
+
   test("uses the theme palette", () => {
     const dark = renderSvg(year, "dark");
     expect(dark).toContain('fill="#56d364"');

@@ -18,7 +18,8 @@ that looks like the one on their GitHub profile, for embedding in READMEs.
 
 Opening the SVG directly shows per-day tooltips; images embedded in a README are static.
 `/api/<username>` (same `theme` parameter) serves a page sized for phones that
-embeds the SVG and scrolls sideways to the latest week, like the graph on GitHub.
+embeds the SVG under a "N contributions in the last year" heading and scrolls sideways
+to the latest week, like the graph on GitHub.
 It shares the SVG's cache and never calls GitHub itself.
 
 URLs are normalized for caching: an uppercase username, `theme=light` or unknown
