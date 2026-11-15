@@ -61,6 +61,18 @@ test("returns the graph as cacheable SVG", async () => {
   });
 });
 
+test("serves the graph inlined in a mobile-friendly HTML page", async () => {
+  stubGitHub();
+  const response = await app.request("/api/octocat.html?theme=dark", {}, env);
+  expect(response.status).toBe(200);
+  expect(response.headers.get("Content-Type")).toBe("text/html; charset=utf-8");
+  const html = await response.text();
+  expect(html).toContain('<meta name="viewport" content="width=device-width, initial-scale=1">');
+  expect(html).toContain("<title>octocat's contributions</title>");
+  expect(html).toContain("background:#0d1117");
+  expect(html).toContain("3 contributions on Nov 15, 2026");
+});
+
 test("renders the dark theme", async () => {
   stubGitHub();
   const response = await app.request("/api/octocat.svg?theme=dark", {}, env);
@@ -71,6 +83,7 @@ test.each([
   ["/api/Octocat.svg", "/api/octocat.svg"],
   ["/api/octocat.svg?theme=light", "/api/octocat.svg"],
   ["/api/octocat.svg?theme=dark&utm=x", "/api/octocat.svg?theme=dark"],
+  ["/api/Octocat.HTML?theme=light", "/api/octocat.html"],
 ])("redirects %s to the canonical URL", async (path, location) => {
   const fetchMock = stubGitHub();
   const response = await app.request(path, {}, env);
@@ -85,6 +98,7 @@ test.each([
   "/api/octocat-.svg",
   `/api/${"a".repeat(40)}.svg`,
   "/api/octocat.png",
+  "/api/octocat.svg.html",
   "/api/octocat.svg?theme=blue",
 ])("rejects %s with an uncached 400", async (path) => {
   const response = await app.request(path, {}, env);

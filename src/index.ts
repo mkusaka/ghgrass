@@ -4,7 +4,7 @@ import type { Context } from "hono";
 import * as v from "valibot";
 
 import { fetchCalendar, GitHubError, installationToken, yearRange } from "./github";
-import { renderSvg } from "./render";
+import { renderHtml, renderSvg } from "./render";
 
 type Bindings = {
   GITHUB_APP_CLIENT_ID: string;
@@ -24,8 +24,11 @@ const params = v.object({
   file: v.pipe(
     v.string(),
     // GitHub logins: alphanumerics and single hyphens, no leading/trailing hyphen, max 39.
-    v.regex(/^[a-z\d](?:[a-z\d]|-(?=[a-z\d])){0,38}\.svg$/i),
-    v.transform((file) => file.slice(0, -4).toLowerCase()),
+    v.regex(/^[a-z\d](?:[a-z\d]|-(?=[a-z\d])){0,38}\.(?:svg|html)$/i),
+    v.transform((file) => {
+      const dot = file.lastIndexOf(".");
+      return { username: file.slice(0, dot).toLowerCase(), ext: file.slice(dot + 1).toLowerCase() };
+    }),
   ),
 });
 const query = v.object({
@@ -45,13 +48,13 @@ const app = new Hono<Env>()
     vValidator("param", params, invalid),
     vValidator("query", query, invalid),
     async (c) => {
-      const username = c.req.valid("param").file;
+      const { username, ext } = c.req.valid("param").file;
       const { theme } = c.req.valid("query");
 
       // The edge cache is keyed by URL, so letter case and extra parameters are
       // redirected to one canonical URL instead of being cached separately.
       const url = new URL(c.req.url);
-      const canonical = `/api/${username}.svg${theme === "dark" ? "?theme=dark" : ""}`;
+      const canonical = `/api/${username}.${ext}${theme === "dark" ? "?theme=dark" : ""}`;
       if (url.pathname + url.search !== canonical) {
         return c.redirect(canonical, 301);
       }
@@ -67,8 +70,9 @@ const app = new Hono<Env>()
           privateKey: c.env.GITHUB_APP_PRIVATE_KEY,
         });
         const days = await fetchCalendar(token, username, start, end);
-        return c.body(renderSvg(days, theme), 200, {
-          "Content-Type": "image/svg+xml; charset=utf-8",
+        const html = ext === "html";
+        return c.body(html ? renderHtml(username, days, theme) : renderSvg(days, theme), 200, {
+          "Content-Type": html ? "text/html; charset=utf-8" : "image/svg+xml; charset=utf-8",
           ...CACHE_HEADERS,
         });
       } catch (error) {

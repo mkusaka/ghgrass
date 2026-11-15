@@ -36,11 +36,12 @@ export function tooltip({ date, count }: Day) {
   return `${count} contribution${count === 1 ? "" : "s"} on ${when}`;
 }
 
-// Runs only when the SVG is opened directly (<img> never runs scripts). Shows a
+// Runs when the SVG is opened directly or inlined in the HTML page (<img> never runs
+// scripts), so it finds its <svg> through the tooltip rather than the document. Shows a
 // GitHub-style tooltip on hover or tap instead of the slow, touch-less native <title>,
 // above the cell, or below it when there is no room at the top of the image.
 const TOOLTIP_SCRIPT = `<![CDATA[
-const svg = document.documentElement, tip = document.getElementById("tip");
+const tip = document.getElementById("tip"), svg = tip.ownerSVGElement;
 const [bg, arrow, label] = tip.children, width = +svg.getAttribute("width");
 for (const title of document.querySelectorAll("rect > title")) {
   title.parentNode.dataset.tip = title.textContent;
@@ -60,7 +61,7 @@ const show = (cell) => {
   arrow.setAttribute("d", "M" + (cx - 5) + " " + edge + "L" + cx + " " + tipY + "L" + (cx + 5) + " " + edge + "Z");
   tip.setAttribute("visibility", "visible");
 };
-svg.addEventListener("pointerover", (e) => (e.target.dataset && e.target.dataset.tip ? show(e.target) : hide()));
+document.addEventListener("pointerover", (e) => (e.target.dataset && e.target.dataset.tip ? show(e.target) : hide()));
 // A touch pointer "leaves" right after every tap; keep the tooltip until the next tap.
 svg.addEventListener("pointerleave", (e) => e.pointerType === "mouse" && hide());
 ]]>`;
@@ -120,4 +121,17 @@ ${legendCells.join("\n")}
 </g>
 <script>${TOOLTIP_SCRIPT}</script>
 </svg>`;
+}
+
+/** The SVG inlined in a mobile-friendly page that scrolls sideways to the latest week, as on GitHub. */
+export function renderHtml(username: string, days: Day[], theme: Theme) {
+  return `<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${escapeXml(username)}'s contributions</title>
+<style>body{margin:0;padding:16px;background:${themes[theme].page}}div{overflow-x:auto}svg{display:block}</style>
+<div>${renderSvg(days, theme)}</div>
+<script>const d = document.querySelector("div"); d.scrollLeft = d.scrollWidth;</script>
+</html>`;
 }
