@@ -150,7 +150,7 @@ const OUTLIER_Z = 3.77972616981;
  * first 3 distinct outlier counts in date order (only 1 when the maximum is small)
  * are ignored, and levels are quarters of the largest remaining count. Unlike
  * githubstats, outliers apply even with fewer than 5 distinct counts. This matched
- * every level of 206 GraphQL ranges (23,679 days) from 36 public profiles.
+ * every level of 206 GraphQL ranges (23,860 days) from 36 public profiles.
  */
 export function relevel(days: Day[]): Day[] {
   const counts = days.map((day) => day.count);
