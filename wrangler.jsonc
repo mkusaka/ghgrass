@@ -1,0 +1,17 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "ghgrass",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-11-01",
+  "cache": { "enabled": true },
+  "ratelimits": [
+    {
+      "name": "RATE_LIMITER",
+      // Create a unique namespace ID per account before deploying.
+      "namespace_id": "1001",
+      // Per username; cache hits never reach the Worker.
+      "simple": { "limit": 10, "period": 60 },
+    },
+  ],
+  "observability": { "enabled": true },
+}
