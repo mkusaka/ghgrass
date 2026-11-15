@@ -34,18 +34,23 @@ Error responses are never cached.
 
 ### Example
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://ghgrass.polyfill.workers.dev/api/mkusaka.svg?theme=dark">
-  <img alt="mkusaka's contribution graph" src="https://ghgrass.polyfill.workers.dev/api/mkusaka.svg">
-</picture>
+<a href="https://ghgrass.polyfill.workers.dev/api/mkusaka.svg">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://ghgrass.polyfill.workers.dev/api/mkusaka.svg?theme=dark">
+    <img alt="mkusaka's contribution graph" src="https://ghgrass.polyfill.workers.dev/api/mkusaka.svg">
+  </picture>
+</a>
 
-To follow the viewer's GitHub theme, use `<picture>`:
+`<picture>` follows the viewer's GitHub theme. Images in a README are static, so
+the link opens the SVG itself, where hovering a day shows its count:
 
 ```html
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://ghgrass.polyfill.workers.dev/api/mkusaka.svg?theme=dark">
-  <img alt="mkusaka's contribution graph" src="https://ghgrass.polyfill.workers.dev/api/mkusaka.svg">
-</picture>
+<a href="https://ghgrass.polyfill.workers.dev/api/mkusaka.svg">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://ghgrass.polyfill.workers.dev/api/mkusaka.svg?theme=dark">
+    <img alt="mkusaka's contribution graph" src="https://ghgrass.polyfill.workers.dev/api/mkusaka.svg">
+  </picture>
+</a>
 ```
 
 ## How it works
