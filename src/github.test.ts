@@ -121,9 +121,10 @@ describe("fetchCalendar", () => {
 });
 
 describe("relevel", () => {
-  test("matches levels sampled from a github.com profile (max 324)", () => {
+  test("matches GitHub's levels for a sampled public profile", () => {
+    // Level boundaries GitHub returned for one profile: 1-37, 38-70, 77-103, 119+.
     const sample: [number, number][] = [
-      [0, 0], [1, 1], [60, 1], [81, 1], [82, 2], [151, 2], [160, 2], [226, 3], [302, 4], [324, 4],
+      [0, 0], [1, 1], [37, 1], [38, 2], [70, 2], [77, 3], [103, 3], [119, 4], [150, 4], [188, 4], [383, 4],
     ];
     const days: Day[] = sample.map(([count], i) => ({ date: `2026-01-${10 + i}`, count, level: 0 }));
     expect(relevel(days).map((day) => day.level)).toEqual(sample.map(([, level]) => level));

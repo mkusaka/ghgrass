@@ -40,8 +40,9 @@ Error responses are never cached.
   contributions. The whole range is tried first so GitHub's own levels are used.
   On failure it is fetched in 4-week chunks, and failing chunks are halved down to
   single days (at most 45 requests). Because GitHub computes levels relative to the
-  requested range, levels are then recomputed over the whole year as
-  `ceil(count * 4 / max)`, which approximates GitHub's undocumented rule.
+  requested range, levels are then recomputed over the whole year as quarters of
+  the third-largest daily count. This only approximates GitHub's undocumented
+  rule (about 3% of days differed across six sampled profiles).
 - Responses are cached by Workers Cache (`cache.enabled`) for 10 minutes and
   served stale for up to an hour while revalidating:
   `Cloudflare-CDN-Cache-Control: public, max-age=600, stale-while-revalidate=3600`,

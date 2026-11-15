@@ -27,7 +27,7 @@ describe("renderSvg", () => {
   test("lays out 53 Sunday-based weeks with one titled cell per day", () => {
     expect(svg.match(/<title>/g)).toHaveLength(365);
     // Last column holds only Sunday 2026-11-15.
-    expect(svg).toContain(`<rect x="707" y="16" width="10" height="10" rx="2" ry="2" fill="#116329"><title>2548 contributions on Nov 15, 2026</title>`);
+    expect(svg).toContain(`<rect x="707.5" y="16.5" width="9" height="9" rx="2" ry="2" fill="#116329"><title>2548 contributions on Nov 15, 2026</title>`);
     expect(svg).toContain('viewBox="0 0 717 122"');
   });
 
@@ -37,6 +37,17 @@ describe("renderSvg", () => {
       "Nov", "Dec", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov",
       "Mon", "Wed", "Fri", "Less", "More",
     ]);
+  });
+
+  test("skips a month label that would only cover the last column", () => {
+    // Ends on Sunday 2026-12-06, the first Sunday of December.
+    const shifted = year.map((day) => ({
+      ...day,
+      date: new Date(Date.parse(`${day.date}T00:00:00Z`) + 21 * DAY_MS).toISOString().slice(0, 10),
+    }));
+    const labels = [...renderSvg(shifted, "light").matchAll(/<text x="(\d+)" y="10">(\w+)/g)];
+    expect(labels.at(-1)?.[2]).toBe("Nov");
+    expect(labels.every(([, x]) => Number(x) <= 717 - 26)).toBe(true);
   });
 
   test("uses the theme palette", () => {

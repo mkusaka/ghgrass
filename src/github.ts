@@ -142,15 +142,15 @@ export async function fetchCalendar(
  * GitHub computes levels relative to the requested range, so levels from split
  * requests disagree with each other and are recomputed over the whole range.
  *
- * ponytail: approximates GitHub's undocumented rule with quarters of the maximum
- * (ceil(count * 4 / max)), which matched every day of one sampled profile
- * (max 324: 81 -> 1, 82 -> 2, 160 -> 2, 226 -> 3, 302 -> 4). Revisit if GitHub
- * documents the algorithm or mismatches are reported.
+ * ponytail: GitHub's rule is undocumented. Its levels behave like quarters of a cap
+ * that ignores a few outlier days; using the third-largest count as that cap
+ * mismatched 63 of 2190 days across six sampled public profiles (plain maximum:
+ * 184). Revisit if GitHub documents the algorithm.
  */
 export function relevel(days: Day[]): Day[] {
-  const max = Math.max(0, ...days.map((day) => day.count));
+  const cap = [...days.map((day) => day.count)].sort((a, b) => b - a).slice(0, 3).at(-1) ?? 0;
   return days.map((day) => ({
     ...day,
-    level: (day.count === 0 ? 0 : Math.ceil((day.count * 4) / max)) as Level,
+    level: (day.count === 0 ? 0 : Math.min(4, Math.ceil((day.count * 4) / cap))) as Level,
   }));
 }

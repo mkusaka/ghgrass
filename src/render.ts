@@ -46,18 +46,20 @@ export function renderSvg(days: Day[], theme: Theme) {
   const legendY = GRID_Y + 7 * PITCH - 3 + LEGEND_GAP;
   const height = legendY + CELL;
   const cell = (x: number, y: number, level: number, title?: string) =>
-    `<rect x="${x}" y="${y}" width="${CELL}" height="${CELL}" rx="${RADIUS}" ry="${RADIUS}" fill="${colors.levels[level]}"${
+    // Inset by half the stroke so the 1px border stays inside the cell, like GitHub's outline.
+    `<rect x="${x + 0.5}" y="${y + 0.5}" width="${CELL - 1}" height="${CELL - 1}" rx="${RADIUS}" ry="${RADIUS}" fill="${colors.levels[level]}"${
       title ? `><title>${escapeXml(title)}</title></rect>` : "/>"
     }`;
 
   // A month label sits over the first week whose Sunday falls in that month,
-  // and is skipped when the month spans a single column (as on GitHub).
+  // and is skipped when the month spans a single column (as on GitHub), which also
+  // keeps a label for the last column from overflowing the image.
   const months: string[] = [];
   const monthOf = (week: number) => new Date(start + week * 7 * DAY_MS).getUTCMonth();
   for (let week = 0; week < weeks; week++) {
     const month = monthOf(week);
     if (week > 0 && monthOf(week - 1) === month) continue;
-    if (week + 1 < weeks && monthOf(week + 1) !== month) continue;
+    if (week + 1 >= weeks || monthOf(week + 1) !== month) continue;
     months.push(`<text x="${GRID_X + week * PITCH}" y="10">${MONTHS[month]}</text>`);
   }
 
