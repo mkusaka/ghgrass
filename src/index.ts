@@ -3,11 +3,13 @@ import { Hono } from "hono";
 import type { Context } from "hono";
 import * as v from "valibot";
 
-import { fetchCalendar, GitHubError, yearRange } from "./github";
+import { fetchCalendar, GitHubError, installationToken, yearRange } from "./github";
 import { renderSvg } from "./render";
 
 type Bindings = {
-  GITHUB_TOKEN: string;
+  GITHUB_APP_CLIENT_ID: string;
+  // PKCS#8 PEM.
+  GITHUB_APP_PRIVATE_KEY: string;
   // Workers Rate Limiting binding.
   RATE_LIMITER: { limit(options: { key: string }): Promise<{ success: boolean }> };
 };
@@ -60,7 +62,11 @@ const app = new Hono<Env>()
 
       const { start, end } = yearRange(new Date());
       try {
-        const days = await fetchCalendar(c.env.GITHUB_TOKEN, username, start, end);
+        const token = await installationToken({
+          clientId: c.env.GITHUB_APP_CLIENT_ID,
+          privateKey: c.env.GITHUB_APP_PRIVATE_KEY,
+        });
+        const days = await fetchCalendar(token, username, start, end);
         return c.body(renderSvg(days, theme), 200, {
           "Content-Type": "image/svg+xml; charset=utf-8",
           ...CACHE_HEADERS,

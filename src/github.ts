@@ -3,7 +3,8 @@ import type { Day, Level } from "./types";
 const GRAPHQL_URL = "https://api.github.com/graphql";
 const DAY_MS = 86_400_000;
 const TIMEOUT_MS = 10_000;
-// Workers allow 50 subrequests per invocation on the free plan.
+// Workers allow 50 subrequests per invocation on the free plan; minting an
+// installation token takes 2 more.
 const MAX_REQUESTS = 45;
 // The first fallback step: 4-week chunks, as a week-aligned stand-in for months.
 const CHUNK_DAYS = 28;
@@ -46,6 +47,67 @@ export class GitHubError extends Error {
 
 // Thrown for failures that a smaller date range may avoid.
 class SplittableError extends Error {}
+
+export type AppCredentials = { clientId: string; privateKey: string };
+
+const base64url = (bytes: ArrayBuffer | Uint8Array) =>
+  btoa(String.fromCharCode(...new Uint8Array(bytes)))
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+
+/** A short-lived JWT that authenticates as the App itself. */
+async function appJwt({ clientId, privateKey }: AppCredentials) {
+  // Accepts real newlines or "\n" escapes (single-line .dev.vars values).
+  const der = Uint8Array.from(
+    atob(privateKey.replace(/-----[^-]+-----|\\n|\s/g, "")),
+    (char) => char.charCodeAt(0),
+  );
+  const key = await crypto.subtle.importKey(
+    "pkcs8",
+    der,
+    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const now = Math.floor(Date.now() / 1000);
+  const encode = (value: object) => base64url(new TextEncoder().encode(JSON.stringify(value)));
+  // iat is backdated for clock drift; GitHub allows at most 10 minutes of lifetime.
+  const unsigned = `${encode({ alg: "RS256", typ: "JWT" })}.${encode({ iat: now - 60, exp: now + 540, iss: clientId })}`;
+  const signature = await crypto.subtle.sign("RSASSA-PKCS1-v1_5", key, new TextEncoder().encode(unsigned));
+  return `${unsigned}.${base64url(signature)}`;
+}
+
+let cachedToken: { token: string; expiresAt: number } | undefined;
+
+/**
+ * Returns an installation token for the App's only installation, reused across
+ * requests in this isolate until 5 minutes before it expires (tokens last 1 hour).
+ */
+export async function installationToken(app: AppCredentials): Promise<string> {
+  if (cachedToken && cachedToken.expiresAt - Date.now() > 5 * 60_000) return cachedToken.token;
+  const init = {
+    headers: {
+      Authorization: `Bearer ${await appJwt(app)}`,
+      Accept: "application/vnd.github+json",
+      "User-Agent": "ghgrass",
+    },
+    signal: AbortSignal.timeout(TIMEOUT_MS),
+  };
+  const call = async (url: string, method = "GET") => {
+    const response = await fetch(url, { ...init, method }).catch(() => null);
+    if (!response?.ok) throw new GitHubError(503);
+    return response.json();
+  };
+  const [installation] = (await call("https://api.github.com/app/installations")) as { id: number }[];
+  if (!installation) throw new GitHubError(503);
+  const { token, expires_at } = (await call(
+    `https://api.github.com/app/installations/${installation.id}/access_tokens`,
+    "POST",
+  )) as { token: string; expires_at: string };
+  cachedToken = { token, expiresAt: Date.parse(expires_at) };
+  return token;
+}
 
 const isoDate = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 

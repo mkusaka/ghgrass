@@ -1,1 +1,3 @@
-GITHUB_TOKEN=<GitHub token with no scopes (public data only)>
+GITHUB_APP_CLIENT_ID=<GitHub App Client ID, e.g. Iv23li...>
+# The contents of app.pkcs8.pem on one line, with newlines written as \n.
+GITHUB_APP_PRIVATE_KEY="<app.pkcs8.pem contents>"

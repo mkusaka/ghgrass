@@ -35,7 +35,8 @@ Error responses are never cached.
 ## How it works
 
 - The calendar is fetched from GitHub's GraphQL API (`contributionCalendar`)
-  for the 53 Sunday-based weeks ending today (UTC), using a service token.
+  for the 53 Sunday-based weeks ending today (UTC), using a GitHub App
+  installation token that is cached until shortly before it expires.
 - GitHub fails (502/504, timeouts or "Something went wrong") on ranges with many
   contributions. The whole range is tried first so GitHub's own levels are used.
   On failure it is fetched in 4-week chunks, and failing chunks are halved down to
@@ -51,11 +52,39 @@ Error responses are never cached.
   `Cache-Control: public, max-age=0`.
 - Colors come from `@primer/primitives` 11.10.0.
 
+## GitHub App
+
+The Worker authenticates as a GitHub App installation. The App needs no
+permissions: public contribution data is readable by any installation.
+
+1. Open <https://github.com/settings/apps/new> (or your organization's
+   Settings → Developer settings → GitHub Apps → New GitHub App).
+2. Fill in:
+   - **GitHub App name**: anything unique, e.g. `ghgrass-<your-name>`.
+   - **Homepage URL**: your Worker URL.
+   - **Webhook**: uncheck **Active**.
+   - **Permissions**: leave everything at **No access**.
+   - **Where can this GitHub App be installed?**: **Only on this account**.
+3. Click **Create GitHub App** and note the **Client ID** (`Iv23li...`).
+4. Under **Private keys**, click **Generate a private key**; a `.pem` file downloads.
+5. Click **Install App** in the sidebar and install it on your account
+   (if asked for repositories, any single one will do). The Worker finds the
+   installation itself, so the App must have exactly one installation.
+6. Convert the key to PKCS#8, which WebCrypto requires, store both secrets and
+   delete the local key files:
+
+   ```sh
+   openssl pkcs8 -topk8 -nocrypt -in <app>.private-key.pem -out app.pkcs8.pem
+   pnpm wrangler secret put GITHUB_APP_CLIENT_ID
+   pnpm wrangler secret put GITHUB_APP_PRIVATE_KEY < app.pkcs8.pem
+   rm <app>.private-key.pem app.pkcs8.pem
+   ```
+
 ## Development
 
 ```sh
 pnpm install
-cp .dev.vars.example .dev.vars   # set GITHUB_TOKEN
+cp .dev.vars.example .dev.vars   # set the GitHub App credentials
 pnpm dev
 pnpm test
 pnpm typecheck
@@ -64,5 +93,5 @@ pnpm typecheck
 ## Deploy
 
 1. Set a unique `namespace_id` for the rate limiter in `wrangler.jsonc`.
-2. Store a GitHub token with no scopes as a secret: `pnpm wrangler secret put GITHUB_TOKEN`.
+2. Create the GitHub App and store its secrets (see above).
 3. `pnpm deploy`

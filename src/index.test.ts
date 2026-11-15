@@ -8,15 +8,37 @@ afterEach(() => {
 });
 
 const allow = { limit: async () => ({ success: true }) };
-const env = { GITHUB_TOKEN: "secret-token", RATE_LIMITER: allow };
+const { privateKey } = await crypto.subtle.generateKey(
+  { name: "RSASSA-PKCS1-v1_5", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" },
+  true,
+  ["sign", "verify"],
+);
+const pkcs8 = btoa(String.fromCharCode(...new Uint8Array(await crypto.subtle.exportKey("pkcs8", privateKey))));
+const env = {
+  GITHUB_APP_CLIENT_ID: "Iv23liTest",
+  // A single-line key with "\n" escapes, as in .dev.vars (PEM armor omitted).
+  GITHUB_APP_PRIVATE_KEY: pkcs8.replace(/.{64}/g, "$&\\n"),
+  RATE_LIMITER: allow,
+};
 
-function stubGitHub(body: unknown = { data: { user: { contributionsCollection: { contributionCalendar: { weeks: [{ contributionDays: [
-  { date: "2026-11-15", contributionCount: 3, contributionLevel: "FOURTH_QUARTILE" },
-] }] } } } } }) {
-  const fetchMock = vi.fn(async (_url: string, _init: RequestInit) => Response.json(body));
+// Answers the App token endpoints with "secret-token" and GraphQL with `graphql()`.
+function stubGitHub(graphql: () => Response = () => Response.json({ data: { user: { contributionsCollection: {
+  contributionCalendar: { weeks: [{ contributionDays: [
+    { date: "2026-11-15", contributionCount: 3, contributionLevel: "FOURTH_QUARTILE" },
+  ] }] },
+} } } })) {
+  const fetchMock = vi.fn(async (url: string, _init: RequestInit) => {
+    if (url.endsWith("/app/installations")) return Response.json([{ id: 1 }]);
+    if (url.endsWith("/access_tokens")) {
+      return Response.json({ token: "secret-token", expires_at: "2999-01-01T00:00:00Z" });
+    }
+    return graphql();
+  });
   vi.stubGlobal("fetch", fetchMock);
   return fetchMock;
 }
+const graphqlCalls = (fetchMock: ReturnType<typeof stubGitHub>) =>
+  fetchMock.mock.calls.filter(([url]) => url.endsWith("/graphql"));
 
 test("returns the graph as cacheable SVG", async () => {
   vi.useFakeTimers({ now: new Date("2026-11-15T12:00:00Z"), toFake: ["Date"] });
@@ -30,7 +52,7 @@ test("returns the graph as cacheable SVG", async () => {
   );
   expect(await response.text()).toContain("3 contributions on Nov 15, 2026");
 
-  const [, init] = fetchMock.mock.calls[0]!;
+  const [, init] = graphqlCalls(fetchMock)[0]!;
   expect(new Headers(init.headers).get("Authorization")).toBe("Bearer secret-token");
   expect(JSON.parse(init.body as string).variables).toEqual({
     login: "octocat",
@@ -72,7 +94,7 @@ test.each([
 });
 
 test("returns 404 for missing users", async () => {
-  stubGitHub({ data: { user: null }, errors: [{ type: "NOT_FOUND" }] });
+  stubGitHub(() => Response.json({ data: { user: null }, errors: [{ type: "NOT_FOUND" }] }));
   const response = await app.request("/api/nobody.svg", {}, env);
   expect(response.status).toBe(404);
   expect(response.headers.get("Cache-Control")).toBe("no-store");
@@ -89,7 +111,7 @@ test("returns 429 when the rate limiter refuses", async () => {
 });
 
 test("hides GitHub failures and the token behind an uncached 503", async () => {
-  vi.stubGlobal("fetch", vi.fn(async () => new Response("bad credentials secret-token", { status: 401 })));
+  stubGitHub(() => new Response("bad credentials secret-token", { status: 401 }));
   const response = await app.request("/api/octocat.svg", {}, env);
   expect(response.status).toBe(503);
   expect(response.headers.get("Cache-Control")).toBe("no-store");

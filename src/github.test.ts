@@ -163,3 +163,80 @@ describe("relevel", () => {
     expect(relevel([{ date: "2026-01-01", count: 0, level: 0 }])[0]?.level).toBe(0);
   });
 });
+
+describe("installationToken", () => {
+  const keyPair = crypto.subtle.generateKey(
+    { name: "RSASSA-PKCS1-v1_5", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" },
+    true,
+    ["sign", "verify"],
+  );
+  const pem = async () => {
+    const der = await crypto.subtle.exportKey("pkcs8", (await keyPair).privateKey);
+    const body = btoa(String.fromCharCode(...new Uint8Array(der))).replace(/.{64}/g, "$&\n");
+    // PEM armor is omitted here; the parser drops it along with whitespace.
+    return `${body}\n`;
+  };
+  // The token is cached per module, so each test gets a fresh one.
+  const load = async () => {
+    vi.resetModules();
+    return (await import("./github")).installationToken;
+  };
+  const decode = (part: string) =>
+    Uint8Array.from(atob(part.replace(/-/g, "+").replace(/_/g, "/")), (char) => char.charCodeAt(0));
+
+  test("signs an App JWT, finds the installation and caches the token", async () => {
+    const fetchMock = vi.fn(async (url: string, _init: RequestInit) =>
+      url.endsWith("/app/installations")
+        ? Response.json([{ id: 42 }])
+        : Response.json({ token: "ghs_test", expires_at: new Date(Date.now() + 3_600_000).toISOString() }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const installationToken = await load();
+    const app = { clientId: "Iv23liTest", privateKey: await pem() };
+
+    expect(await installationToken(app)).toBe("ghs_test");
+    expect(await installationToken(app)).toBe("ghs_test");
+    expect(fetchMock.mock.calls.map(([url, init]) => [init.method, url])).toEqual([
+      ["GET", "https://api.github.com/app/installations"],
+      ["POST", "https://api.github.com/app/installations/42/access_tokens"],
+    ]);
+
+    const jwt = new Headers(fetchMock.mock.calls[0]![1].headers).get("Authorization")!.slice(7);
+    const [header, payload, signature] = jwt.split(".") as [string, string, string];
+    const claims = JSON.parse(new TextDecoder().decode(decode(payload)));
+    expect(claims.iss).toBe("Iv23liTest");
+    expect(claims.exp - claims.iat).toBeLessThanOrEqual(600);
+    const valid = await crypto.subtle.verify(
+      "RSASSA-PKCS1-v1_5",
+      (await keyPair).publicKey,
+      decode(signature),
+      new TextEncoder().encode(`${header}.${payload}`),
+    );
+    expect(valid).toBe(true);
+  });
+
+  test("renews a token that is about to expire", async () => {
+    const fetchMock = vi.fn(async (url: string, _init: RequestInit) =>
+      url.endsWith("/app/installations")
+        ? Response.json([{ id: 42 }])
+        : Response.json({ token: "ghs_test", expires_at: new Date(Date.now() + 60_000).toISOString() }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const installationToken = await load();
+    const app = { clientId: "Iv23liTest", privateKey: await pem() };
+    await installationToken(app);
+    await installationToken(app);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
+  test.each([
+    ["no installation", () => Response.json([])],
+    ["a rejected JWT", () => new Response("", { status: 401 })],
+  ])("maps %s to 503", async (_name, answer) => {
+    vi.stubGlobal("fetch", vi.fn(async () => answer()));
+    const installationToken = await load();
+    await expect(installationToken({ clientId: "Iv23liTest", privateKey: await pem() })).rejects.toMatchObject({
+      status: 503,
+    });
+  });
+});
