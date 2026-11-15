@@ -32,6 +32,22 @@ query parameters get a `301` redirect to the canonical URL.
 
 Error responses are never cached.
 
+### Example
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://ghgrass.polyfill.workers.dev/api/mkusaka.svg?theme=dark">
+  <img alt="mkusaka's contribution graph" src="https://ghgrass.polyfill.workers.dev/api/mkusaka.svg">
+</picture>
+
+To follow the viewer's GitHub theme, use `<picture>`:
+
+```html
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://ghgrass.polyfill.workers.dev/api/mkusaka.svg?theme=dark">
+  <img alt="mkusaka's contribution graph" src="https://ghgrass.polyfill.workers.dev/api/mkusaka.svg">
+</picture>
+```
+
 ## How it works
 
 - The calendar is fetched from GitHub's GraphQL API (`contributionCalendar`)
