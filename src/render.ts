@@ -128,8 +128,7 @@ ${legendCells.join("\n")}
 </svg>`;
 }
 
-// A 2x2 grid of contribution cells. Slack and similar previews can't use SVG for og:image,
-// so the preview image is the user's GitHub avatar instead.
+// A 2x2 grid of contribution cells.
 const FAVICON = `data:image/svg+xml,${encodeURIComponent(
   `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">${themes.light.levels
     .slice(1)
@@ -141,8 +140,9 @@ const FAVICON = `data:image/svg+xml,${encodeURIComponent(
  * A phone-sized page that scrolls sideways to the latest week, as on GitHub. It embeds
  * the SVG URL rather than the SVG, so the page needs no data and shares the SVG's cache.
  */
-export function renderHtml(username: string, theme: Theme) {
-  const svgUrl = `/api/${username}.svg${theme === "dark" ? "?theme=dark" : ""}`;
+export function renderHtml(username: string, theme: Theme, origin: string) {
+  const themeQuery = theme === "dark" ? "?theme=dark" : "";
+  const svgUrl = `/api/${username}.svg${themeQuery}`;
   // A plain link to the other theme's canonical page, so each theme stays cacheable.
   const toggle = theme === "dark" ? [`/api/${username}`, "☀ Light"] : [`/api/${username}?theme=dark`, "☾ Dark"];
   return `<!doctype html>
@@ -155,8 +155,8 @@ export function renderHtml(username: string, theme: Theme) {
 <meta property="og:description" content="${escapeXml(username)}'s GitHub contribution graph for the last year">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="ghgrass">
-<meta property="og:image" content="https://github.com/${username}.png?size=400">
-<meta name="twitter:card" content="summary">
+<meta property="og:image" content="${escapeXml(`${origin}/api/${username}.png${themeQuery}`)}">
+<meta name="twitter:card" content="summary_large_image">
 <style>body{margin:0;padding:16px;background:${themes[theme].page}}header{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px}h2{margin:0;min-height:24px;font:400 16px/24px ${FONT};color:${themes[theme].heading}}a{font:12px ${FONT};color:${themes[theme].text};text-decoration:none;white-space:nowrap}div{overflow-x:auto}object{display:block}</style>
 <header><h2></h2><a href="${escapeXml(toggle[0]!)}">${toggle[1]}</a></header>
 <div><object type="image/svg+xml" data="${escapeXml(svgUrl)}" onload="loaded(this)">${escapeXml(username)}'s contribution graph</object></div>
@@ -173,4 +173,78 @@ document.addEventListener("pointerdown", () =>
   document.querySelector("object").contentDocument?.getElementById("tip")?.setAttribute("visibility", "hidden"));
 </script>
 </html>`;
+}
+
+
+// Link previews (Slack, X, ...) can't show SVG, so og:image is this PNG: the cells only,
+// at 2x, since text would need a font. Written by hand as the format is tiny for flat colors.
+const PNG_SCALE = 2;
+const PNG_PADDING = 16;
+
+const CRC_TABLE = Array.from({ length: 256 }, (_, n) => {
+  for (let k = 0; k < 8; k++) n = n & 1 ? 0xedb88320 ^ (n >>> 1) : n >>> 1;
+  return n >>> 0;
+});
+const crc32 = (bytes: Uint8Array) => {
+  let crc = 0xffffffff;
+  for (const byte of bytes) crc = CRC_TABLE[(crc ^ byte) & 0xff]! ^ (crc >>> 8);
+  return (crc ^ 0xffffffff) >>> 0;
+};
+
+function chunk(type: string, data: Uint8Array) {
+  const out = new Uint8Array(12 + data.length);
+  const view = new DataView(out.buffer);
+  view.setUint32(0, data.length);
+  out.set(new TextEncoder().encode(type), 4);
+  out.set(data, 8);
+  view.setUint32(8 + data.length, crc32(out.subarray(4, 8 + data.length)));
+  return out;
+}
+
+const rgb = (hex: string) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+
+/** Renders days (sorted, starting on a Sunday) as the graph's cells in a PNG. */
+export async function renderPng(days: Day[], theme: Theme) {
+  const colors = themes[theme];
+  const start = toMs(days[0]?.date ?? "1970-01-04");
+  const weeks = Math.max(1, Math.ceil(days.length / 7));
+  const pad = PNG_PADDING * PNG_SCALE;
+  const width = (weeks * PITCH - 3) * PNG_SCALE + 2 * pad;
+  const height = (7 * PITCH - 3) * PNG_SCALE + 2 * pad;
+  const row = width * 3 + 1; // filter byte + RGB
+  const pixels = new Uint8Array(row * height);
+  const fill = (x0: number, y0: number, w: number, h: number, color: number[], radius = 0) => {
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        // Skip pixels outside the rounded corners.
+        const dx = Math.max(radius - x - 0.5, x + 0.5 - (w - radius), 0);
+        const dy = Math.max(radius - y - 0.5, y + 0.5 - (h - radius), 0);
+        if (dx * dx + dy * dy > radius * radius) continue;
+        pixels.set(color, (y0 + y) * row + 1 + (x0 + x) * 3);
+      }
+    }
+  };
+  fill(0, 0, width, height, rgb(colors.page));
+  for (const day of days) {
+    const offset = Math.round((toMs(day.date) - start) / DAY_MS);
+    const x = pad + Math.floor(offset / 7) * PITCH * PNG_SCALE;
+    const y = pad + (offset % 7) * PITCH * PNG_SCALE;
+    fill(x, y, CELL * PNG_SCALE, CELL * PNG_SCALE, rgb(colors.levels[day.level]!), RADIUS * PNG_SCALE);
+  }
+
+  const header = new Uint8Array(13);
+  const view = new DataView(header.buffer);
+  view.setUint32(0, width);
+  view.setUint32(4, height);
+  header.set([8, 2], 8); // 8-bit RGB
+  // "deflate" here is the zlib format PNG expects.
+  const compressed = await new Response(
+    new Blob([pixels]).stream().pipeThrough(new CompressionStream("deflate")),
+  ).bytes();
+  return new Blob([
+    new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    chunk("IHDR", header),
+    chunk("IDAT", compressed),
+    chunk("IEND", new Uint8Array()),
+  ]).arrayBuffer();
 }

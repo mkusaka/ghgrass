@@ -4,7 +4,7 @@ import type { Context } from "hono";
 import * as v from "valibot";
 
 import { fetchCalendar, GitHubError, installationToken, yearRange } from "./github";
-import { renderHtml, renderSvg } from "./render";
+import { renderHtml, renderPng, renderSvg } from "./render";
 
 type Bindings = {
   GITHUB_APP_CLIENT_ID: string;
@@ -25,10 +25,10 @@ const params = v.object({
     v.string(),
     // GitHub logins: alphanumerics and single hyphens, no leading/trailing hyphen, max 39.
     // No extension serves the HTML page; ".html" is redirected there.
-    v.regex(/^[a-z\d](?:[a-z\d]|-(?=[a-z\d])){0,38}(?:\.svg|\.html)?$/i),
+    v.regex(/^[a-z\d](?:[a-z\d]|-(?=[a-z\d])){0,38}(?:\.svg|\.png|\.html)?$/i),
     v.transform((file) => {
       const [name, ext] = file.toLowerCase().split(".");
-      return { username: name!, svg: ext === "svg" };
+      return { username: name!, image: ext === "svg" || ext === "png" ? ext : undefined };
     }),
   ),
 });
@@ -49,18 +49,18 @@ const app = new Hono<Env>()
     vValidator("param", params, invalid),
     vValidator("query", query, invalid),
     async (c) => {
-      const { username, svg } = c.req.valid("param").file;
+      const { username, image } = c.req.valid("param").file;
       const { theme } = c.req.valid("query");
 
       // The edge cache is keyed by URL, so letter case and extra parameters are
       // redirected to one canonical URL instead of being cached separately.
       const url = new URL(c.req.url);
-      const canonical = `/api/${username}${svg ? ".svg" : ""}${theme === "dark" ? "?theme=dark" : ""}`;
+      const canonical = `/api/${username}${image ? `.${image}` : ""}${theme === "dark" ? "?theme=dark" : ""}`;
       if (url.pathname + url.search !== canonical) {
         return c.redirect(canonical, 301);
       }
-      if (!svg) {
-        return c.html(renderHtml(username, theme), 200, CACHE_HEADERS);
+      if (!image) {
+        return c.html(renderHtml(username, theme, url.origin), 200, CACHE_HEADERS);
       }
 
       if (!(await c.env.RATE_LIMITER.limit({ key: username })).success) {
@@ -74,6 +74,9 @@ const app = new Hono<Env>()
           privateKey: c.env.GITHUB_APP_PRIVATE_KEY,
         });
         const days = await fetchCalendar(token, username, start, end);
+        if (image === "png") {
+          return c.body(await renderPng(days, theme), 200, { "Content-Type": "image/png", ...CACHE_HEADERS });
+        }
         return c.body(renderSvg(days, theme), 200, {
           "Content-Type": "image/svg+xml; charset=utf-8",
           ...CACHE_HEADERS,

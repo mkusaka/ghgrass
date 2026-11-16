@@ -73,13 +73,29 @@ test("serves a cacheable HTML page that embeds the SVG URL without calling GitHu
   expect(html).toContain('<meta name="viewport" content="width=device-width, initial-scale=1">');
   expect(html).toContain("<title>octocat's contributions</title>");
   expect(html).toContain('<link rel="icon" href="data:image/svg+xml,');
-  expect(html).toContain('<meta property="og:image" content="https://github.com/octocat.png?size=400">');
+  expect(html).toContain('<meta property="og:image" content="http://localhost/api/octocat.png?theme=dark">');
   expect(html).toContain("background:#0d1117");
   expect(html).toContain('data="/api/octocat.svg?theme=dark"');
   expect(html).toContain("color:#f0f6fc");
   expect(html).toContain("in the last year");
   expect(html).toContain('<a href="/api/octocat">☀ Light</a>');
   expect(fetchMock).not.toHaveBeenCalled();
+});
+
+test("returns the graph as PNG", async () => {
+  stubGitHub();
+  const response = await app.request("/api/octocat.png", {}, env);
+  expect(response.status).toBe(200);
+  expect(response.headers.get("Content-Type")).toBe("image/png");
+  const png = new Uint8Array(await response.arrayBuffer());
+  expect([...png.subarray(0, 8)]).toEqual([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  const view = new DataView(png.buffer);
+  const width = view.getUint32(16), height = view.getUint32(20);
+  // One IDAT chunk follows IHDR; inflating it gives a filter byte + RGB per row.
+  const idat = png.subarray(41, 41 + view.getUint32(33));
+  const raw = await new Response(new Blob([idat]).stream().pipeThrough(new DecompressionStream("deflate"))).bytes();
+  expect(raw.length).toBe((width * 3 + 1) * height);
+  expect([...raw.subarray(1, 4)]).toEqual([0xff, 0xff, 0xff]); // light page background
 });
 
 test("renders the dark theme", async () => {
@@ -107,7 +123,7 @@ test.each([
   "/api/octo--cat.svg",
   "/api/octocat-.svg",
   `/api/${"a".repeat(40)}.svg`,
-  "/api/octocat.png",
+  "/api/octocat.jpg",
   "/api/octocat.svg.html",
   "/api/octo.cat",
   "/api/octocat.svg?theme=blue",

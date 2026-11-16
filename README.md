@@ -21,13 +21,15 @@ Opening the SVG directly shows per-day tooltips; images embedded in a README are
 embeds the SVG under a "N contributions in the last year" heading and scrolls sideways
 to the latest week, like the graph on GitHub. A link at the top right switches the theme.
 It shares the SVG's cache and never calls GitHub itself.
+`/api/<username>.png` is the graph's cells alone as a PNG, used as the page's `og:image`
+for link previews (Slack, X, ...), which can't show SVG.
 
 URLs are normalized for caching: an uppercase username, `theme=light` or unknown
 query parameters get a `301` redirect to the canonical URL.
 
 | Status    | Meaning                                       |
 | --------- | --------------------------------------------- |
-| 200       | SVG, or HTML without `.svg`                   |
+| 200       | SVG, PNG, or HTML without an extension        |
 | 301       | Redirect to the canonical URL                 |
 | 400       | Invalid username or parameter                 |
 | 404       | GitHub user not found                         |
