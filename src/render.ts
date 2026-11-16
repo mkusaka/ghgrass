@@ -128,6 +128,15 @@ ${legendCells.join("\n")}
 </svg>`;
 }
 
+// A 2x2 grid of contribution cells. Slack and similar previews can't use SVG for og:image,
+// so the preview image is the user's GitHub avatar instead.
+const FAVICON = `data:image/svg+xml,${encodeURIComponent(
+  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">${themes.light.levels
+    .slice(1)
+    .map((fill, i) => `<rect x="${(i % 2) * 8 + 0.5}" y="${Math.floor(i / 2) * 8 + 0.5}" width="7" height="7" rx="1.5" fill="${fill}"/>`)
+    .join("")}</svg>`,
+)}`;
+
 /**
  * A phone-sized page that scrolls sideways to the latest week, as on GitHub. It embeds
  * the SVG URL rather than the SVG, so the page needs no data and shares the SVG's cache.
@@ -141,6 +150,13 @@ export function renderHtml(username: string, theme: Theme) {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escapeXml(username)}'s contributions</title>
+<link rel="icon" href="${FAVICON}">
+<meta property="og:title" content="${escapeXml(username)}'s contributions">
+<meta property="og:description" content="${escapeXml(username)}'s GitHub contribution graph for the last year">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="ghgrass">
+<meta property="og:image" content="https://github.com/${username}.png?size=400">
+<meta name="twitter:card" content="summary">
 <style>body{margin:0;padding:16px;background:${themes[theme].page}}header{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px}h2{margin:0;min-height:24px;font:400 16px/24px ${FONT};color:${themes[theme].heading}}a{font:12px ${FONT};color:${themes[theme].text};text-decoration:none;white-space:nowrap}div{overflow-x:auto}object{display:block}</style>
 <header><h2></h2><a href="${escapeXml(toggle[0]!)}">${toggle[1]}</a></header>
 <div><object type="image/svg+xml" data="${escapeXml(svgUrl)}" onload="loaded(this)">${escapeXml(username)}'s contribution graph</object></div>
