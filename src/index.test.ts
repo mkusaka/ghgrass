@@ -90,12 +90,22 @@ test("returns the graph as PNG", async () => {
   const png = new Uint8Array(await response.arrayBuffer());
   expect([...png.subarray(0, 8)]).toEqual([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
   const view = new DataView(png.buffer);
+  const chunks: Record<string, Uint8Array<ArrayBuffer>> = {};
+  for (let at = 8; at < png.length; at += 12 + view.getUint32(at)) {
+    const type = new TextDecoder().decode(png.subarray(at + 4, at + 8));
+    chunks[type] = png.subarray(at + 8, at + 8 + view.getUint32(at));
+  }
   const width = view.getUint32(16), height = view.getUint32(20);
-  // One IDAT chunk follows IHDR; inflating it gives a filter byte + RGB per row.
-  const idat = png.subarray(41, 41 + view.getUint32(33));
-  const raw = await new Response(new Blob([idat]).stream().pipeThrough(new DecompressionStream("deflate"))).bytes();
-  expect(raw.length).toBe((width * 3 + 1) * height);
-  expect([...raw.subarray(1, 4)]).toEqual([0xff, 0xff, 0xff]); // light page background
+  const raw = await new Response(
+    new Blob([chunks.IDAT!]).stream().pipeThrough(new DecompressionStream("deflate")),
+  ).bytes();
+  expect(raw.length).toBe((width + 1) * height);
+  // The heading's solid color (light theme #1f2328) is in the palette and drawn.
+  const palette = chunks.PLTE!;
+  const solid = [...Array(palette.length / 3).keys()].find(
+    (i) => palette[i * 3] === 0x1f && palette[i * 3 + 1] === 0x23 && palette[i * 3 + 2] === 0x28,
+  );
+  expect(raw).toContain(solid);
 });
 
 test("renders the dark theme", async () => {

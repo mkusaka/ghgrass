@@ -21,8 +21,9 @@ Opening the SVG directly shows per-day tooltips; images embedded in a README are
 embeds the SVG under a "N contributions in the last year" heading and scrolls sideways
 to the latest week, like the graph on GitHub. A link at the top right switches the theme.
 It shares the SVG's cache and never calls GitHub itself.
-`/api/<username>.png` is the graph's cells alone as a PNG, used as the page's `og:image`
-for link previews (Slack, X, ...), which can't show SVG.
+`/api/<username>.png` renders the page (heading and graph) as a PNG, used as its `og:image`
+for link previews (Slack, X, ...), which can't show SVG. `scripts/glyphs.py` regenerates
+its prerendered text glyphs in `src/glyphs.ts`.
 
 URLs are normalized for caching: an uppercase username, `theme=light` or unknown
 query parameters get a `301` redirect to the canonical URL.

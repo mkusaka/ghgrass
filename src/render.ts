@@ -1,3 +1,4 @@
+import { glyphs } from "./glyphs";
 import { themes } from "./themes";
 import type { Day, Theme } from "./types";
 
@@ -66,60 +67,68 @@ document.addEventListener("pointerover", (e) => (e.target.dataset && e.target.da
 svg.addEventListener("pointerleave", (e) => e.pointerType === "mouse" && hide());
 ]]>`;
 
-/** Renders days (sorted, starting on a Sunday) as GitHub's contribution graph. */
-export function renderSvg(days: Day[], theme: Theme) {
-  const colors = themes[theme];
+type Text = { x: number; y: number; text: string; end?: boolean };
+type Cell = { x: number; y: number; level: number; day?: Day };
+
+/** Positions of GitHub's graph for days (sorted, starting on a Sunday), shared by SVG and PNG. */
+function layout(days: Day[]) {
   const start = toMs(days[0]?.date ?? "1970-01-04");
   const weeks = Math.max(1, Math.ceil(days.length / 7));
-  const gridWidth = weeks * PITCH - 3;
-  const width = GRID_X + gridWidth;
+  const width = GRID_X + weeks * PITCH - 3;
   const legendY = GRID_Y + 7 * PITCH - 3 + LEGEND_GAP;
   const height = legendY + CELL;
-  const cell = (x: number, y: number, level: number, title?: string) =>
-    // Inset by half the stroke so the 1px border stays inside the cell, like GitHub's outline.
-    `<rect x="${x + 0.5}" y="${y + 0.5}" width="${CELL - 1}" height="${CELL - 1}" rx="${RADIUS}" ry="${RADIUS}" fill="${colors.levels[level]}"${
-      title ? `><title>${escapeXml(title)}</title></rect>` : "/>"
-    }`;
+  const texts: Text[] = [];
 
   // A month label sits over the first week whose Sunday falls in that month,
   // and is skipped when the month spans a single column (as on GitHub), which also
   // keeps a label for the last column from overflowing the image.
-  const months: string[] = [];
   const monthOf = (week: number) => new Date(start + week * 7 * DAY_MS).getUTCMonth();
   for (let week = 0; week < weeks; week++) {
     const month = monthOf(week);
     if (week > 0 && monthOf(week - 1) === month) continue;
     if (week + 1 >= weeks || monthOf(week + 1) !== month) continue;
-    months.push(`<text x="${GRID_X + week * PITCH}" y="10">${MONTHS[month]}</text>`);
+    texts.push({ x: GRID_X + week * PITCH, y: 10, text: MONTHS[month]! });
   }
+  for (const [row, text] of DAY_LABELS) texts.push({ x: 0, y: GRID_Y + row * PITCH + 9, text });
 
-  const cells = days.map((day) => {
+  const cells: Cell[] = days.map((day) => {
     const offset = Math.round((toMs(day.date) - start) / DAY_MS);
-    const x = GRID_X + Math.floor(offset / 7) * PITCH;
-    const y = GRID_Y + (offset % 7) * PITCH;
-    return cell(x, y, day.level, tooltip(day));
+    return { x: GRID_X + Math.floor(offset / 7) * PITCH, y: GRID_Y + (offset % 7) * PITCH, level: day.level, day };
   });
+
+  const legendEnd = width - MORE_WIDTH;
+  for (const level of [0, 1, 2, 3, 4]) {
+    cells.push({ x: legendEnd - (5 - level) * (CELL + 4), y: legendY, level });
+  }
+  texts.push({ x: legendEnd - 5 * (CELL + 4) - 4, y: legendY + 9, text: "Less", end: true });
+  texts.push({ x: legendEnd, y: legendY + 9, text: "More" });
 
   // GitHub's "in the last year" total: from the same date a year before the last day.
   const last = days.at(-1)?.date ?? "";
   const yearAgo = `${Number(last.slice(0, 4)) - 1}${last.slice(4)}`;
   const total = days.reduce((sum, day) => (day.date >= yearAgo ? sum + day.count : sum), 0);
+  return { width, height, cells, texts, total };
+}
 
-  const legendEnd = width - MORE_WIDTH;
-  const legendCells = [0, 1, 2, 3, 4].map((level) =>
-    cell(legendEnd - (5 - level) * (CELL + 4), legendY, level),
-  );
+const heading = (total: number) =>
+  `${total.toLocaleString("en-US")} contribution${total === 1 ? "" : "s"} in the last year`;
+
+/** Renders days (sorted, starting on a Sunday) as GitHub's contribution graph. */
+export function renderSvg(days: Day[], theme: Theme) {
+  const colors = themes[theme];
+  const { width, height, cells, texts, total } = layout(days);
+  // Inset by half the stroke so the 1px border stays inside the cell, like GitHub's outline.
+  const cell = ({ x, y, level, day }: Cell) =>
+    `<rect x="${x + 0.5}" y="${y + 0.5}" width="${CELL - 1}" height="${CELL - 1}" rx="${RADIUS}" ry="${RADIUS}" fill="${colors.levels[level]}"${
+      day ? `><title>${escapeXml(tooltip(day))}</title></rect>` : "/>"
+    }`;
 
   return `<svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" data-total="${total}">
 <g font-family="${escapeXml(FONT)}" font-size="12" fill="${colors.text}">
-${months.join("\n")}
-${DAY_LABELS.map(([row, label]) => `<text x="0" y="${GRID_Y + row * PITCH + 9}">${label}</text>`).join("\n")}
-<text x="${legendEnd - 5 * (CELL + 4) - 4}" y="${legendY + 9}" text-anchor="end">Less</text>
-<text x="${legendEnd}" y="${legendY + 9}">More</text>
+${texts.map(({ x, y, text, end }) => `<text x="${x}" y="${y}"${end ? ' text-anchor="end"' : ""}>${text}</text>`).join("\n")}
 </g>
 <g stroke="${colors.border}" stroke-opacity="${colors.borderOpacity}" stroke-width="1" shape-rendering="geometricPrecision">
-${cells.join("\n")}
-${legendCells.join("\n")}
+${cells.map(cell).join("\n")}
 </g>
 <g id="tip" visibility="hidden" pointer-events="none" font-family="${escapeXml(FONT)}" font-size="12">
 <rect rx="6" fill="${colors.tooltip}"/><path fill="${colors.tooltip}"/><text fill="#ffffff"/>
@@ -175,11 +184,13 @@ document.addEventListener("pointerdown", () =>
 </html>`;
 }
 
-
-// Link previews (Slack, X, ...) can't show SVG, so og:image is this PNG: the cells only,
-// at 2x, since text would need a font. Written by hand as the format is tiny for flat colors.
+// Link previews (Slack, X, ...) can't show SVG, so og:image is this PNG: the HTML page's
+// heading and graph at 2x. Written by hand with prerendered glyphs, as a real rasterizer
+// costs more CPU than the Workers free plan allows. ponytail: no kerning or cell borders.
 const PNG_SCALE = 2;
 const PNG_PADDING = 16;
+const HEADING_HEIGHT = 32; // 24px line + 8px margin, as on the HTML page
+const HEADING_BASELINE = 18;
 
 const CRC_TABLE = Array.from({ length: 256 }, (_, n) => {
   for (let k = 0; k < 8; k++) n = n & 1 ? 0xedb88320 ^ (n >>> 1) : n >>> 1;
@@ -203,40 +214,80 @@ function chunk(type: string, data: Uint8Array) {
 
 const rgb = (hex: string) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
 
-/** Renders days (sorted, starting on a Sunday) as the graph's cells in a PNG. */
+const alphaCache = new Map<string, Uint8Array>();
+const alphaOf = (data: string) => {
+  let alpha = alphaCache.get(data);
+  if (!alpha) alphaCache.set(data, (alpha = Uint8Array.from(atob(data), (c) => c.charCodeAt(0))));
+  return alpha;
+};
+
+// Text is antialiased against the page background in this many steps per text color.
+const TEXT_SHADES = 16;
+
+/**
+ * Renders the HTML page's heading and graph for days (sorted, starting on a Sunday) as a PNG.
+ * It is indexed color (1 byte per pixel) to keep compression, most of the CPU time, small.
+ */
 export async function renderPng(days: Day[], theme: Theme) {
   const colors = themes[theme];
-  const start = toMs(days[0]?.date ?? "1970-01-04");
-  const weeks = Math.max(1, Math.ceil(days.length / 7));
-  const pad = PNG_PADDING * PNG_SCALE;
-  const width = (weeks * PITCH - 3) * PNG_SCALE + 2 * pad;
-  const height = (7 * PITCH - 3) * PNG_SCALE + 2 * pad;
-  const row = width * 3 + 1; // filter byte + RGB
-  const pixels = new Uint8Array(row * height);
-  const fill = (x0: number, y0: number, w: number, h: number, color: number[], radius = 0) => {
-    for (let y = 0; y < h; y++) {
-      for (let x = 0; x < w; x++) {
-        // Skip pixels outside the rounded corners.
-        const dx = Math.max(radius - x - 0.5, x + 0.5 - (w - radius), 0);
-        const dy = Math.max(radius - y - 0.5, y + 0.5 - (h - radius), 0);
-        if (dx * dx + dy * dy > radius * radius) continue;
-        pixels.set(color, (y0 + y) * row + 1 + (x0 + x) * 3);
+  const graph = layout(days);
+  const scale = (n: number) => Math.round(n * PNG_SCALE);
+  const left = PNG_PADDING;
+  const top = PNG_PADDING + HEADING_HEIGHT;
+  const width = scale(graph.width + 2 * PNG_PADDING);
+  const height = scale(top + graph.height + PNG_PADDING);
+  const row = width + 1; // filter byte + palette indexes
+
+  // Palette: the page, the 5 levels, then the shades of each text color over the page.
+  const page = rgb(colors.page);
+  const textColors = [colors.heading, colors.text];
+  const palette = [page, ...colors.levels.map(rgb)];
+  for (const color of textColors.map(rgb)) {
+    for (let shade = 1; shade <= TEXT_SHADES; shade++) {
+      const a = shade / TEXT_SHADES;
+      palette.push(page.map((p, i) => Math.round(p * (1 - a) + color[i]! * a)));
+    }
+  }
+  const textIndex = (color: number, alpha: number) =>
+    alpha < 8 ? 0 : 6 + color * TEXT_SHADES + Math.round((alpha * TEXT_SHADES) / 255) - 1;
+
+  const pixels = new Uint8Array(row * height); // all page background (index 0)
+  // x and baseline y in 1x units; `end` right-aligns at x, like text-anchor="end".
+  const text = ({ x, y, text, end }: Text, size: number, color: number) => {
+    const font = glyphs[size]!;
+    const chars = [...text].map((char) => font[char]!);
+    let pen = scale(x) - (end ? chars.reduce((sum, glyph) => sum + glyph.advance, 0) : 0);
+    for (const glyph of chars) {
+      const alpha = alphaOf(glyph.alpha);
+      const x0 = Math.round(pen) + glyph.x, y0 = scale(y) + glyph.y;
+      for (let i = 0; i < alpha.length; i++) {
+        const at = (y0 + Math.floor(i / glyph.width)) * row + 1 + x0 + (i % glyph.width);
+        // Glyphs may overlap slightly; keep the darker coverage.
+        pixels[at] = Math.max(pixels[at]!, textIndex(color, alpha[i]!));
       }
+      pen += glyph.advance;
     }
   };
-  fill(0, 0, width, height, rgb(colors.page));
-  for (const day of days) {
-    const offset = Math.round((toMs(day.date) - start) / DAY_MS);
-    const x = pad + Math.floor(offset / 7) * PITCH * PNG_SCALE;
-    const y = pad + (offset % 7) * PITCH * PNG_SCALE;
-    fill(x, y, CELL * PNG_SCALE, CELL * PNG_SCALE, rgb(colors.levels[day.level]!), RADIUS * PNG_SCALE);
+  text({ x: left, y: PNG_PADDING + HEADING_BASELINE, text: heading(graph.total) }, 16, 0);
+  for (const label of graph.texts) text({ ...label, x: left + label.x, y: top + label.y }, 12, 1);
+
+  // One row of a cell, inside its rounded corners, per y.
+  const size = scale(CELL), radius = scale(RADIUS);
+  const spans = Array.from({ length: size }, (_, y) => {
+    const dy = Math.max(radius - y - 0.5, y + 0.5 - (size - radius), 0);
+    const inset = dy === 0 ? 0 : Math.ceil(radius - 0.5 - Math.sqrt(radius * radius - dy * dy));
+    return [inset, size - inset];
+  });
+  for (const { x, y, level } of graph.cells) {
+    const x0 = scale(left + x) + 1, y0 = scale(top + y);
+    spans.forEach(([from, to], dy) => pixels.fill(1 + level, (y0 + dy) * row + x0 + from!, (y0 + dy) * row + x0 + to!));
   }
 
   const header = new Uint8Array(13);
   const view = new DataView(header.buffer);
   view.setUint32(0, width);
   view.setUint32(4, height);
-  header.set([8, 2], 8); // 8-bit RGB
+  header.set([8, 3], 8); // 8-bit indexed color
   // "deflate" here is the zlib format PNG expects.
   const compressed = await new Response(
     new Blob([pixels]).stream().pipeThrough(new CompressionStream("deflate")),
@@ -244,6 +295,7 @@ export async function renderPng(days: Day[], theme: Theme) {
   return new Blob([
     new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
     chunk("IHDR", header),
+    chunk("PLTE", new Uint8Array(palette.flat())),
     chunk("IDAT", compressed),
     chunk("IEND", new Uint8Array()),
   ]).arrayBuffer();
