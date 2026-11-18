@@ -6,8 +6,6 @@ const TIMEOUT_MS = 10_000;
 // Workers allow 50 subrequests per invocation on the free plan; minting an
 // installation token takes 2 more.
 const MAX_REQUESTS = 45;
-// The first fallback step: 4-week chunks, as a week-aligned stand-in for months.
-const CHUNK_DAYS = 28;
 
 const QUERY = `query ($login: String!, $from: DateTime!, $to: DateTime!) {
   user(login: $login) {
@@ -157,14 +155,6 @@ async function request(
   return calendar.weeks.flatMap((week) => week.contributionDays);
 }
 
-function chunks(start: number, end: number, days: number) {
-  const result: [number, number][] = [];
-  for (let from = start; from <= end; from += days * DAY_MS) {
-    result.push([from, Math.min(from + (days - 1) * DAY_MS, end)]);
-  }
-  return result;
-}
-
 export type FetchCalendarOptions = {
   /** Called once, before the first split, when the whole range failed. */
   onFallback?: () => void | Promise<void>;
@@ -184,8 +174,8 @@ const toDay = (day: ApiDay): Day => ({
  *
  * GitHub's GraphQL API fails (502/504, timeouts or "Something went wrong") on
  * ranges with many contributions. The whole range is tried first so GitHub's own
- * levels can be used; on failure it is fetched in 4-week chunks, and any chunk
- * that still fails is halved down to single days.
+ * levels can be used; on failure it is bisected, each failing half again, down to
+ * single days.
  */
 export async function fetchCalendar(
   token: string,
@@ -196,7 +186,7 @@ export async function fetchCalendar(
 ): Promise<Day[]> {
   let requests = 0;
   let fellBack = false;
-  const fetchRange = async (from: number, to: number, size: number): Promise<ApiDay[]> => {
+  const fetchRange = async (from: number, to: number): Promise<ApiDay[]> => {
     signal?.throwIfAborted();
     if (++requests > MAX_REQUESTS) throw new GitHubError(503);
     try {
@@ -211,15 +201,14 @@ export async function fetchCalendar(
         fellBack = true;
         await onFallback?.();
       }
-      const parts = chunks(from, to, size > CHUNK_DAYS ? CHUNK_DAYS : Math.ceil(size / 2));
-      const results = await Promise.all(
-        parts.map(([a, b]) => fetchRange(a, b, (b - a) / DAY_MS + 1)),
-      );
+      // Bisect: the failing half of a failing range is halved again, down to single days.
+      const mid = from + Math.ceil((to - from) / DAY_MS / 2) * DAY_MS;
+      const results = await Promise.all([fetchRange(from, mid - DAY_MS), fetchRange(mid, to)]);
       return results.flat();
     }
   };
 
-  const apiDays = await fetchRange(start, end, (end - start) / DAY_MS + 1);
+  const apiDays = await fetchRange(start, end);
   const days = [...new Map(apiDays.map((day) => [day.date, day])).values()]
     .sort((a, b) => a.date.localeCompare(b.date))
     .map(toDay);

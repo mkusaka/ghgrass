@@ -57,13 +57,13 @@ describe("fetchCalendar", () => {
     ["HTTP 502", () => new Response("", { status: 502 })],
     ["a GraphQL error without data", () => Response.json({ errors: [{ message: "Something went wrong" }] })],
   ])("splits failing ranges on %s and recomputes levels", async (_name, failure) => {
-    const { fetchMock, ranges } = stubGitHub(14, failure);
+    const { fetchMock, ranges } = stubGitHub(100, failure);
     const days = await fetchCalendar("token", "octocat", start, end);
-    expect(fetchMock.mock.calls.length).toBeGreaterThan(15);
-    expect(fetchMock.mock.calls.length).toBeLessThanOrEqual(45);
+    // Bisected: the whole year, its two halves, then the four quarters.
+    expect(fetchMock).toHaveBeenCalledTimes(7);
     expect(ranges.slice(1, 3)).toEqual([
-      ["2025-11-16", "2025-12-13"],
-      ["2025-12-14", "2026-01-10"],
+      ["2025-11-16", "2026-05-16"],
+      ["2026-05-17", "2026-11-15"],
     ]);
     expect(days.map((day) => day.date)).toEqual(
       Array.from({ length: 365 }, (_, i) => new Date(start + i * DAY_MS).toISOString().slice(0, 10)),
@@ -85,7 +85,7 @@ describe("fetchCalendar", () => {
       }),
     );
     await fetchCalendar("token", "octocat", start, end);
-    expect(calls).toBe(15);
+    expect(calls).toBe(3);
   });
 
   test("does not split when the user does not exist", async () => {
