@@ -1,6 +1,9 @@
-import { afterEach, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import app from "./index";
+
+// Workers always have a cache; most tests ignore it.
+beforeEach(() => vi.stubGlobal("caches", { default: { put: async () => {}, match: async () => undefined } }));
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -197,7 +200,7 @@ test("streams the SVG uncached when the whole range needs splitting", async () =
     ] }] } } } } });
   });
   const put = vi.fn(async (_request: Request, _response: Response) => {});
-  vi.stubGlobal("caches", { default: { put } });
+  vi.stubGlobal("caches", { default: { put, match: async () => undefined } });
   const pending: Promise<unknown>[] = [];
   const ctx = { waitUntil: (p: Promise<unknown>) => void pending.push(p), passThroughOnException() {} };
   const response = await app.request("/api/octocat.svg", {}, env, ctx as never);
@@ -207,12 +210,41 @@ test("streams the SVG uncached when the whole range needs splitting", async () =
   expect(text).toContain('id="d-2026-11-15"');
   expect(text.endsWith("</svg>")).toBe(true);
 
-  // The completed copy is cached with the normal headers.
+  // The completed copy is stored under a private key, not the request's own.
   await Promise.all(pending);
   expect(put).toHaveBeenCalledOnce();
-  const stored = put.mock.calls[0]![1];
-  expect(stored.headers.get("Cache-Control")).toBe("public, max-age=600, stale-while-revalidate=3600");
+  const [key, stored] = put.mock.calls[0]!;
+  expect(key.url).toBe("http://localhost/copy/api/octocat.svg");
+  expect(stored.headers.get("Cache-Control")).toBe("public, max-age=86400");
   expect(await stored.text()).toBe(text);
+});
+
+test("serves a stored copy as cacheable and refreshes it in the background once stale", async () => {
+  const fetchMock = stubGitHub();
+  const copyOf = (generated: number) =>
+    new Response("<svg>copy</svg>", { headers: { "X-Generated": String(generated) } });
+  const pending: Promise<unknown>[] = [];
+  const ctx = { waitUntil: (p: Promise<unknown>) => void pending.push(p), passThroughOnException() {} };
+  const run = async (generated: number) => {
+    const put = vi.fn(async (_request: Request, _response: Response) => {});
+    vi.stubGlobal("caches", { default: { put, match: async () => copyOf(generated) } });
+    const response = await app.request("/api/octocat.svg", {}, env, ctx as never);
+    await Promise.all(pending);
+    return { response, put };
+  };
+
+  const fresh = await run(Date.now());
+  expect(await fresh.response.text()).toBe("<svg>copy</svg>");
+  expect(fresh.response.headers.get("Cloudflare-CDN-Cache-Control")).toBe(
+    "public, max-age=600, stale-while-revalidate=3600",
+  );
+  expect(fresh.put).not.toHaveBeenCalled();
+  expect(graphqlCalls(fetchMock)).toHaveLength(0);
+
+  const stale = await run(Date.now() - 601_000);
+  expect(await stale.response.text()).toBe("<svg>copy</svg>");
+  expect(stale.put).toHaveBeenCalledOnce();
+  expect(graphqlCalls(fetchMock)).toHaveLength(1);
 });
 
 test("does not cache a stream that ends abnormally", async () => {
@@ -228,7 +260,7 @@ test("does not cache a stream that ends abnormally", async () => {
     return new Response("", { status: 502 });
   });
   const put = vi.fn();
-  vi.stubGlobal("caches", { default: { put } });
+  vi.stubGlobal("caches", { default: { put, match: async () => undefined } });
   const pending: Promise<unknown>[] = [];
   const ctx = { waitUntil: (p: Promise<unknown>) => void pending.push(p), passThroughOnException() {} };
   const response = await app.request("/api/octocat.svg", {}, env, ctx as never);

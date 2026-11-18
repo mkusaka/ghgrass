@@ -21,6 +21,11 @@ const CACHE_HEADERS = {
   "Cloudflare-CDN-Cache-Control": "public, max-age=600, stale-while-revalidate=3600",
 };
 
+// Matches the 600s freshness in CACHE_HEADERS.
+const COPY_MAX_AGE_MS = 600_000;
+// Usernames whose copy is being regenerated in this isolate.
+const refreshing = new Set<string>();
+
 const params = v.object({
   file: v.pipe(
     v.string(),
@@ -69,41 +74,64 @@ const app = new Hono<Env>()
       }
 
       const { start, end } = yearRange(new Date());
+      const credentials = {
+        clientId: c.env.GITHUB_APP_CLIENT_ID,
+        privateKey: c.env.GITHUB_APP_PRIVATE_KEY,
+      };
       try {
-        const token = await installationToken({
-          clientId: c.env.GITHUB_APP_CLIENT_ID,
-          privateKey: c.env.GITHUB_APP_PRIVATE_KEY,
-        });
         if (image === "png") {
-          const days = await fetchCalendar(token, username, start, end);
+          const days = await fetchCalendar(await installationToken(credentials), username, start, end);
           return c.body(await renderPng(days, theme), 200, { "Content-Type": "image/png", ...CACHE_HEADERS });
         }
-        // Not tied to the client's connection: a viewer that gives up early (Camo does)
-        // must not stop the fetch, or a slow graph would never reach the cache.
-        const svg = await progressiveSvg(
-          (options) => fetchCalendar(token, username, start, end, options),
-          start,
-          theme,
-        );
         const headers = { "Content-Type": "image/svg+xml; charset=utf-8" };
+        // Not tied to the client's connection: a viewer that gives up early (Camo does)
+        // must not stop the fetch, or a slow graph would never be stored.
+        const generate = async () =>
+          progressiveSvg(
+            async (options) => fetchCalendar(await installationToken(credentials), username, start, end, options),
+            start,
+            theme,
+          );
+
+        // Graphs that needed streaming are kept as a finished copy under a private key.
+        // A streamed response is no-store and would evict the edge cache's entry, and the
+        // Cache API has no stale-while-revalidate, so this copy is served as an ordinary
+        // cacheable response (which does get it) and refreshed in the background once old.
+        const cache = (caches as unknown as { default: Cache }).default;
+        const copyKey = new Request(`${url.origin}/copy${canonical}`);
+        const store = (text: string) =>
+          cache.put(
+            copyKey,
+            new Response(text, {
+              headers: { ...headers, "Cache-Control": "public, max-age=86400", "X-Generated": String(Date.now()) },
+            }),
+          );
+        const copy = await cache.match(copyKey);
+        if (copy) {
+          const stale = Date.now() - Number(copy.headers.get("X-Generated")) > COPY_MAX_AGE_MS;
+          if (stale && !refreshing.has(canonical)) {
+            refreshing.add(canonical);
+            c.executionCtx.waitUntil(
+              generate()
+                .then((svg) => (typeof svg === "string" ? svg : new Response(svg).text()))
+                .then(store)
+                .catch(() => {})
+                .finally(() => refreshing.delete(canonical)),
+            );
+          }
+          return c.body(await copy.text(), 200, { ...headers, ...CACHE_HEADERS });
+        }
+
+        const svg = await generate();
         if (typeof svg === "string") return c.body(svg, 200, { ...headers, ...CACHE_HEADERS });
 
-        // The stream goes out uncached; a copy is stored only if it ends cleanly, so an
-        // incomplete SVG never becomes a cache entry.
-        const [body, copy] = svg.tee();
+        // The stream goes out uncached; the copy is stored only if it ends cleanly, so an
+        // incomplete SVG is never stored.
+        const [body, whole] = svg.tee();
         c.executionCtx.waitUntil(
-          new Response(copy)
+          new Response(whole)
             .text()
-            .then((text) =>
-              (caches as unknown as { default: Cache }).default.put(
-                c.req.raw,
-                // The Cache API ignores Cloudflare-CDN-Cache-Control's stale-while-revalidate,
-                // so it goes in Cache-Control here.
-                new Response(text, {
-                  headers: { ...headers, ...CACHE_HEADERS, "Cache-Control": CACHE_HEADERS["Cloudflare-CDN-Cache-Control"] },
-                }),
-              ),
-            )
+            .then(store)
             .catch(() => {}),
         );
         return c.body(body, 200, { ...headers, "Cache-Control": "no-store" });
