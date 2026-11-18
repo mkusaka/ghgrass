@@ -59,9 +59,9 @@ describe("fetchCalendar", () => {
   ])("splits failing ranges on %s and recomputes levels", async (_name, failure) => {
     const { fetchMock, ranges } = stubGitHub(100, failure);
     const days = await fetchCalendar("token", "octocat", start, end);
-    // Bisected: the whole year, its two halves, then the four quarters.
-    expect(fetchMock).toHaveBeenCalledTimes(7);
-    expect(ranges.slice(1, 3)).toEqual([
+    // The whole year 3 times, then bisected: its two halves, then the four quarters.
+    expect(fetchMock).toHaveBeenCalledTimes(9);
+    expect(ranges.slice(3, 5)).toEqual([
       ["2025-11-16", "2026-05-16"],
       ["2026-05-17", "2026-11-15"],
     ]);
@@ -84,8 +84,22 @@ describe("fetchCalendar", () => {
         });
       }),
     );
-    await fetchCalendar("token", "octocat", start, end);
-    expect(calls).toBe(3);
+    const days = await fetchCalendar("token", "octocat", start, end);
+    // The retry of the whole year succeeds, so nothing is split.
+    expect(calls).toBe(2);
+    expect(days).toEqual([]);
+  });
+
+  test("retries the whole year before splitting, and keeps GitHub's levels when a retry succeeds", async () => {
+    const onFallback = vi.fn();
+    let calls = 0;
+    const { fetchMock } = stubGitHub(400);
+    const ok = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (url, init) => (calls++ < 2 ? new Response("", { status: 502 }) : ok(url, init)));
+    const days = await fetchCalendar("token", "octocat", start, end, { onFallback });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(onFallback).not.toHaveBeenCalled();
+    expect(days.every((day) => day.level === 1)).toBe(true);
   });
 
   test("does not split when the user does not exist", async () => {

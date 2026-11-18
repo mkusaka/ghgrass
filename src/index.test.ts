@@ -192,9 +192,10 @@ test("returns an uncached 404 for other paths", async () => {
 
 test("streams the SVG uncached when the whole range needs splitting", async () => {
   vi.useFakeTimers({ now: new Date("2026-11-15T12:00:00Z"), toFake: ["Date"] });
-  let first = true;
+  let calls = 0;
   stubGitHub(() => {
-    if (first) return (first = false), new Response("", { status: 502 });
+    // The whole year fails all 3 attempts.
+    if (++calls <= 3) return new Response("", { status: 502 });
     return Response.json({ data: { user: { contributionsCollection: { contributionCalendar: { weeks: [{ contributionDays: [
       { date: "2026-11-15", contributionCount: 3, contributionLevel: "FOURTH_QUARTILE" },
     ] }] } } } } });
@@ -251,8 +252,8 @@ test("does not cache a stream that ends abnormally", async () => {
   vi.useFakeTimers({ now: new Date("2026-11-15T12:00:00Z"), toFake: ["Date"] });
   let calls = 0;
   stubGitHub(() => {
-    // Whole range fails, one chunk succeeds, the rest fail down to single days.
-    if (++calls === 2) {
+    // The whole year fails 3 times, one chunk succeeds, the rest fail down to single days.
+    if (++calls === 4) {
       return Response.json({ data: { user: { contributionsCollection: { contributionCalendar: { weeks: [{ contributionDays: [
         { date: "2026-11-15", contributionCount: 3, contributionLevel: "FOURTH_QUARTILE" },
       ] }] } } } } });

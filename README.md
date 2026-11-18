@@ -71,7 +71,8 @@ the link opens the HTML page, where hovering or tapping a day shows its count:
   for the 53 Sunday-based weeks ending today (UTC), using a GitHub App
   installation token that is cached until shortly before it expires.
 - GitHub fails (502/504, timeouts or "Something went wrong") on ranges with many
-  contributions. The whole range is tried first so GitHub's own levels are used.
+  contributions. The whole range is tried first (up to 3 times, as it often succeeds on a retry) so GitHub's own
+  levels and counts are used; split ranges report higher counts than the profile page.
   On failure it is bisected, and failing halves are bisected again down to
   single days (at most 45 requests). Because GitHub computes levels relative to the
   requested range, levels are then recomputed over the whole year with GitHub's

@@ -6,6 +6,10 @@ const TIMEOUT_MS = 10_000;
 // Workers allow 50 subrequests per invocation on the free plan; minting an
 // installation token takes 2 more.
 const MAX_REQUESTS = 45;
+// Only the whole year matches the profile page's counts; split ranges come back higher.
+// The whole year often times out cold and answers in under a second once GitHub has it
+// warmed, so it is tried this many times before splitting.
+const WHOLE_ATTEMPTS = 3;
 
 const QUERY = `query ($login: String!, $from: DateTime!, $to: DateTime!) {
   user(login: $login) {
@@ -174,7 +178,7 @@ const toDay = (day: ApiDay): Day => ({
  *
  * GitHub's GraphQL API fails (502/504, timeouts or "Something went wrong") on
  * ranges with many contributions. The whole range is tried first so GitHub's own
- * levels can be used; on failure it is bisected, each failing half again, down to
+ * levels can be used (retried, see WHOLE_ATTEMPTS); on failure it is bisected, each failing half again, down to
  * single days.
  */
 export async function fetchCalendar(
@@ -186,7 +190,7 @@ export async function fetchCalendar(
 ): Promise<Day[]> {
   let requests = 0;
   let fellBack = false;
-  const fetchRange = async (from: number, to: number): Promise<ApiDay[]> => {
+  const fetchRange = async (from: number, to: number, retries = 0): Promise<ApiDay[]> => {
     signal?.throwIfAborted();
     if (++requests > MAX_REQUESTS) throw new GitHubError(503);
     try {
@@ -196,6 +200,7 @@ export async function fetchCalendar(
     } catch (error) {
       signal?.throwIfAborted();
       if (!(error instanceof SplittableError)) throw error;
+      if (retries > 0) return fetchRange(from, to, retries - 1);
       if (from === to) throw new GitHubError(502);
       if (!fellBack) {
         fellBack = true;
@@ -208,11 +213,11 @@ export async function fetchCalendar(
     }
   };
 
-  const apiDays = await fetchRange(start, end);
+  const apiDays = await fetchRange(start, end, WHOLE_ATTEMPTS - 1);
   const days = [...new Map(apiDays.map((day) => [day.date, day])).values()]
     .sort((a, b) => a.date.localeCompare(b.date))
     .map(toDay);
-  return requests > 1 ? relevel(days) : days;
+  return fellBack ? relevel(days) : days;
 }
 
 // Outlier z-score threshold, from https://github.com/akerl/githubstats.
