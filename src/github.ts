@@ -3,9 +3,9 @@ import type { Day, Level } from "./types";
 const GRAPHQL_URL = "https://api.github.com/graphql";
 const DAY_MS = 86_400_000;
 const TIMEOUT_MS = 10_000;
-// Workers allow 50 subrequests per invocation on the free plan; minting an
-// installation token takes 2 more.
-const MAX_REQUESTS = 45;
+// Workers (paid plan) allow 1000 subrequests per invocation; this keeps one graph well
+// inside GitHub's hourly App rate limit and the 30s `waitUntil` window.
+const MAX_REQUESTS = 100;
 // Only the whole year matches the profile page's counts; split ranges come back higher.
 // The whole year often times out cold and answers in under a second once GitHub has it
 // warmed, so it is tried this many times before splitting.

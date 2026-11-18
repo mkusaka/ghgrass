@@ -130,7 +130,7 @@ describe("fetchCalendar", () => {
     // Only single days succeed, so every chunk halves all the way down.
     const { fetchMock } = stubGitHub(1);
     await expect(fetchCalendar("token", "octocat", start, end)).rejects.toMatchObject({ status: 503 });
-    expect(fetchMock.mock.calls.length).toBeLessThanOrEqual(45);
+    expect(fetchMock.mock.calls.length).toBeLessThanOrEqual(100);
   });
 });
 
