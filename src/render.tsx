@@ -68,12 +68,16 @@ svg.addEventListener("pointerleave", (e) => e.pointerType === "mouse" && hide())
 ]]>`;
 
 type Text = { x: number; y: number; text: string; end?: boolean };
-type Cell = { x: number; y: number; level: number; day?: Day };
+type Cell = { x: number; y: number; level: number };
+export type Layout = ReturnType<typeof createLayout>;
 
-/** Positions of GitHub's graph for days (sorted, starting on a Sunday), shared by SVG and PNG. */
-function layout(days: Day[]) {
-  const start = toMs(days[0]?.date ?? "1970-01-04");
-  const weeks = Math.max(1, Math.ceil(days.length / 7));
+/**
+ * Positions of GitHub's graph, shared by SVG and PNG. `start` is the first Sunday
+ * (UTC midnight, from yearRange); the graph always spans 53 weeks, so coordinates
+ * depend on dates only, never on which days have arrived.
+ */
+export function createLayout(start: number) {
+  const weeks = 53;
   const width = GRID_X + weeks * PITCH - 3;
   const legendY = GRID_Y + 7 * PITCH - 3 + LEGEND_GAP;
   const height = legendY + CELL;
@@ -91,50 +95,131 @@ function layout(days: Day[]) {
   }
   for (const [row, text] of DAY_LABELS) texts.push({ x: 0, y: GRID_Y + row * PITCH + 9, text });
 
-  const cells: Cell[] = days.map((day) => {
-    const offset = Math.round((toMs(day.date) - start) / DAY_MS);
-    return { x: GRID_X + Math.floor(offset / 7) * PITCH, y: GRID_Y + (offset % 7) * PITCH, level: day.level, day };
-  });
-
+  const legend: Cell[] = [];
   const legendEnd = width - MORE_WIDTH;
   for (const level of [0, 1, 2, 3, 4]) {
-    cells.push({ x: legendEnd - (5 - level) * (CELL + 4), y: legendY, level });
+    legend.push({ x: legendEnd - (5 - level) * (CELL + 4), y: legendY, level });
   }
   texts.push({ x: legendEnd - 5 * (CELL + 4) - 4, y: legendY + 9, text: "Less", end: true });
   texts.push({ x: legendEnd, y: legendY + 9, text: "More" });
 
-  // GitHub's "in the last year" total: from the same date a year before the last day.
+  const position = (date: string) => {
+    const offset = Math.round((toMs(date) - start) / DAY_MS);
+    return { x: GRID_X + Math.floor(offset / 7) * PITCH, y: GRID_Y + (offset % 7) * PITCH };
+  };
+  return { width, height, texts, legend, position };
+}
+
+/** GitHub's "in the last year" total: from the same date a year before the last day. */
+export function lastYearTotal(days: Day[]) {
   const last = days.at(-1)?.date ?? "";
   const yearAgo = `${Number(last.slice(0, 4)) - 1}${last.slice(4)}`;
-  const total = days.reduce((sum, day) => (day.date >= yearAgo ? sum + day.count : sum), 0);
-  return { width, height, cells, texts, total };
+  return days.reduce((sum, day) => (day.date >= yearAgo ? sum + day.count : sum), 0);
 }
 
 const heading = (total: number) =>
   `${total.toLocaleString("en-US")} contribution${total === 1 ? "" : "s"} in the last year`;
 
-/** Renders days (sorted, starting on a Sunday) as GitHub's contribution graph. */
-export function renderSvg(days: Day[], theme: Theme) {
-  const colors = themes[theme];
-  const { width, height, cells, texts, total } = layout(days);
-  // Inset by half the stroke so the 1px border stays inside the cell, like GitHub's outline.
-  const cell = ({ x, y, level, day }: Cell) =>
-    `<rect x="${x + 0.5}" y="${y + 0.5}" width="${CELL - 1}" height="${CELL - 1}" rx="${RADIUS}" ry="${RADIUS}" fill="${colors.levels[level]}"${
-      day ? `><title>${escapeXml(tooltip(day))}</title></rect>` : "/>"
-    }`;
+type CellProps = { x: number; y: number; theme: Theme; level: number; day?: Day };
 
-  return `<svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" data-total="${total}">
-<g font-family="${escapeXml(FONT)}" font-size="12" fill="${colors.text}">
-${texts.map(({ x, y, text, end }) => `<text x="${x}" y="${y}"${end ? ' text-anchor="end"' : ""}>${text}</text>`).join("\n")}
-</g>
-<g stroke="${colors.border}" stroke-opacity="${colors.borderOpacity}" stroke-width="1" shape-rendering="geometricPrecision">
-${cells.map(cell).join("\n")}
-</g>
-<g id="tip" visibility="hidden" pointer-events="none" font-family="${escapeXml(FONT)}" font-size="12">
-<rect rx="6" fill="${colors.tooltip}"/><path fill="${colors.tooltip}"/><text fill="#ffffff"/>
-</g>
-<script>${TOOLTIP_SCRIPT}</script>
-</svg>`;
+// Inset by half the stroke so the 1px border stays inside the cell, like GitHub's outline.
+function GrassCell({ day, x, y, theme, level }: CellProps) {
+  return (
+    <rect
+      id={day && `d-${day.date}`}
+      x={x + 0.5}
+      y={y + 0.5}
+      width={CELL - 1}
+      height={CELL - 1}
+      rx={RADIUS}
+      ry={RADIUS}
+      fill={themes[theme].levels[level]}
+    >
+      {day && <title>{tooltip(day)}</title>}
+    </rect>
+  );
+}
+
+export function GrassChunk({ days, layout, theme }: { days: Day[]; layout: Layout; theme: Theme }) {
+  return (
+    <>
+      {days.map((day) => (
+        <GrassCell {...layout.position(day.date)} day={day} level={day.level} theme={theme} />
+      ))}
+    </>
+  );
+}
+
+export function GraphLabels({ layout, theme }: { layout: Layout; theme: Theme }) {
+  return (
+    <g font-family={FONT} font-size="12" fill={themes[theme].text}>
+      {layout.texts.map(({ x, y, text, end }) => (
+        <text x={x} y={y} text-anchor={end ? "end" : undefined}>{text}</text>
+      ))}
+    </g>
+  );
+}
+
+export function GraphLegend({ layout, theme }: { layout: Layout; theme: Theme }) {
+  return (
+    <>
+      {layout.legend.map((cell) => (
+        <GrassCell {...cell} theme={theme} />
+      ))}
+    </>
+  );
+}
+
+/** CSS that moves cells whose provisional level changed to their final one. */
+export function FinalStyles({ levels, theme }: { levels: Map<number, string[]>; theme: Theme }) {
+  const css = [...levels]
+    .map(([level, dates]) => `${dates.map((date) => `#d-${date}`).join(",")}{fill:${themes[theme].levels[level]}}`)
+    .join("");
+  return css ? <style dangerouslySetInnerHTML={{ __html: css }} /> : <></>;
+}
+
+export function GraphMetadata({ total }: { total: number }) {
+  return <metadata id="graph-metadata" data-total={total} />;
+}
+
+export function GraphTooltip({ theme }: { theme: Theme }) {
+  const fill = themes[theme].tooltip;
+  return (
+    <>
+      <g id="tip" visibility="hidden" pointer-events="none" font-family={FONT} font-size="12">
+        <rect rx="6" fill={fill} />
+        <path fill={fill} />
+        <text fill="#ffffff" />
+      </g>
+      <script dangerouslySetInnerHTML={{ __html: TOOLTIP_SCRIPT }} />
+    </>
+  );
+}
+
+/** The SVG up to the cells: root tag, labels, legend, and the open cell group. */
+export function svgHeader(layout: Layout, theme: Theme) {
+  const { width, height } = layout;
+  const colors = themes[theme];
+  return (
+    `<svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">\n` +
+    String(<GraphLabels layout={layout} theme={theme} />) +
+    `\n<g stroke="${colors.border}" stroke-opacity="${colors.borderOpacity}" stroke-width="1" shape-rendering="geometricPrecision">` +
+    String(<GraphLegend layout={layout} theme={theme} />)
+  );
+}
+
+/** Everything after the last chunk. */
+export const svgFooter = (total: number, levels: Map<number, string[]>, theme: Theme) =>
+  `</g>\n${<FinalStyles levels={levels} theme={theme} />}${<GraphMetadata total={total} />}${<GraphTooltip theme={theme} />}\n</svg>`;
+
+/** Renders days (sorted, starting on `start`'s Sunday) as GitHub's contribution graph. */
+export function renderSvg(days: Day[], theme: Theme, start = toMs(days[0]?.date ?? "1970-01-04")) {
+  const layout = createLayout(start);
+  return (
+    svgHeader(layout, theme) +
+    String(<GrassChunk days={days} layout={layout} theme={theme} />) +
+    svgFooter(lastYearTotal(days), new Map(), theme)
+  );
 }
 
 // A 2x2 grid of contribution cells.
@@ -172,8 +257,10 @@ export function renderHtml(username: string, theme: Theme, origin: string) {
 <script>
 function loaded(graph) {
   graph.parentNode.scrollLeft = graph.parentNode.scrollWidth;
-  // The SVG carries the total, so the page itself needs no data.
-  const total = graph.contentDocument?.documentElement.getAttribute("data-total");
+  // The SVG carries the total, so the page itself needs no data. It is in a trailing
+  // <metadata>; older SVGs had it on the root.
+  const doc = graph.contentDocument;
+  const total = (doc?.getElementById("graph-metadata") ?? doc?.documentElement)?.getAttribute("data-total");
   if (total) document.querySelector("h2").textContent =
     \`\${Number(total).toLocaleString("en-US")} contribution\${total === "1" ? "" : "s"} in the last year\`;
 }
@@ -230,7 +317,8 @@ const TEXT_SHADES = 16;
  */
 export async function renderPng(days: Day[], theme: Theme) {
   const colors = themes[theme];
-  const graph = layout(days);
+  const graph = createLayout(toMs(days[0]?.date ?? "1970-01-04"));
+  const total = lastYearTotal(days);
   const scale = (n: number) => Math.round(n * PNG_SCALE);
   const left = PNG_PADDING;
   const top = PNG_PADDING + HEADING_HEIGHT;
@@ -268,7 +356,7 @@ export async function renderPng(days: Day[], theme: Theme) {
       pen += glyph.advance;
     }
   };
-  text({ x: left, y: PNG_PADDING + HEADING_BASELINE, text: heading(graph.total) }, 16, 0);
+  text({ x: left, y: PNG_PADDING + HEADING_BASELINE, text: heading(total) }, 16, 0);
   for (const label of graph.texts) text({ ...label, x: left + label.x, y: top + label.y }, 12, 1);
 
   // One row of a cell, inside its rounded corners, per y.
@@ -278,7 +366,8 @@ export async function renderPng(days: Day[], theme: Theme) {
     const inset = dy === 0 ? 0 : Math.ceil(radius - 0.5 - Math.sqrt(radius * radius - dy * dy));
     return [inset, size - inset];
   });
-  for (const { x, y, level } of graph.cells) {
+  const cells = [...days.map((day) => ({ ...graph.position(day.date), level: day.level })), ...graph.legend];
+  for (const { x, y, level } of cells) {
     const x0 = scale(left + x) + 1, y0 = scale(top + y);
     spans.forEach(([from, to], dy) => pixels.fill(1 + level, (y0 + dy) * row + x0 + from!, (y0 + dy) * row + x0 + to!));
   }

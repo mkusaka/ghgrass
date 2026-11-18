@@ -186,3 +186,20 @@ test("returns an uncached 404 for other paths", async () => {
   expect(response.status).toBe(404);
   expect(response.headers.get("Cache-Control")).toBe("no-store");
 });
+
+test("streams the SVG uncached when the whole range needs splitting", async () => {
+  vi.useFakeTimers({ now: new Date("2026-11-15T12:00:00Z"), toFake: ["Date"] });
+  let first = true;
+  stubGitHub(() => {
+    if (first) return (first = false), new Response("", { status: 502 });
+    return Response.json({ data: { user: { contributionsCollection: { contributionCalendar: { weeks: [{ contributionDays: [
+      { date: "2026-11-15", contributionCount: 3, contributionLevel: "FOURTH_QUARTILE" },
+    ] }] } } } } });
+  });
+  const response = await app.request("/api/octocat.svg", {}, env);
+  expect(response.status).toBe(200);
+  expect(response.headers.get("Cache-Control")).toBe("no-store");
+  const text = await response.text();
+  expect(text).toContain('id="d-2026-11-15"');
+  expect(text.endsWith("</svg>")).toBe(true);
+});

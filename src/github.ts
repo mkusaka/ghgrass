@@ -118,7 +118,13 @@ export function yearRange(now: Date) {
   return { start, end };
 }
 
-async function request(token: string, login: string, start: number, end: number) {
+async function request(
+  token: string,
+  login: string,
+  start: number,
+  end: number,
+  signal?: AbortSignal,
+) {
   let response: Response;
   try {
     response = await fetch(GRAPHQL_URL, {
@@ -132,7 +138,7 @@ async function request(token: string, login: string, start: number, end: number)
         query: QUERY,
         variables: { login, from: `${isoDate(start)}T00:00:00Z`, to: `${isoDate(end)}T23:59:59Z` },
       }),
-      signal: AbortSignal.timeout(TIMEOUT_MS),
+      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(TIMEOUT_MS)]) : AbortSignal.timeout(TIMEOUT_MS),
     });
   } catch {
     // Timeouts and network errors: heavy ranges often time out on GitHub's side.
@@ -159,6 +165,20 @@ function chunks(start: number, end: number, days: number) {
   return result;
 }
 
+export type FetchCalendarOptions = {
+  /** Called once, before the first split, when the whole range failed. */
+  onFallback?: () => void | Promise<void>;
+  /** Called with each successfully fetched chunk (GitHub's own levels, not yet releveled). */
+  onChunk?: (days: Day[]) => void | Promise<void>;
+  signal?: AbortSignal;
+};
+
+const toDay = (day: ApiDay): Day => ({
+  date: day.date,
+  count: day.contributionCount,
+  level: LEVELS[day.contributionLevel] ?? 0,
+});
+
 /**
  * Fetches the contribution calendar for [start, end] (UTC midnights).
  *
@@ -172,15 +192,25 @@ export async function fetchCalendar(
   login: string,
   start: number,
   end: number,
+  { onFallback, onChunk, signal }: FetchCalendarOptions = {},
 ): Promise<Day[]> {
   let requests = 0;
+  let fellBack = false;
   const fetchRange = async (from: number, to: number, size: number): Promise<ApiDay[]> => {
+    signal?.throwIfAborted();
     if (++requests > MAX_REQUESTS) throw new GitHubError(503);
     try {
-      return await request(token, login, from, to);
+      const days = await request(token, login, from, to, signal);
+      if (fellBack) await onChunk?.(days.map(toDay));
+      return days;
     } catch (error) {
+      signal?.throwIfAborted();
       if (!(error instanceof SplittableError)) throw error;
       if (from === to) throw new GitHubError(502);
+      if (!fellBack) {
+        fellBack = true;
+        await onFallback?.();
+      }
       const parts = chunks(from, to, size > CHUNK_DAYS ? CHUNK_DAYS : Math.ceil(size / 2));
       const results = await Promise.all(
         parts.map(([a, b]) => fetchRange(a, b, (b - a) / DAY_MS + 1)),
@@ -192,11 +222,7 @@ export async function fetchCalendar(
   const apiDays = await fetchRange(start, end, (end - start) / DAY_MS + 1);
   const days = [...new Map(apiDays.map((day) => [day.date, day])).values()]
     .sort((a, b) => a.date.localeCompare(b.date))
-    .map((day) => ({
-      date: day.date,
-      count: day.contributionCount,
-      level: LEVELS[day.contributionLevel] ?? 0,
-    }));
+    .map(toDay);
   return requests > 1 ? relevel(days) : days;
 }
 

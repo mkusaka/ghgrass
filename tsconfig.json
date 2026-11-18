@@ -6,6 +6,8 @@
     "moduleResolution": "bundler",
     "types": [],
     "strict": true,
+    "jsx": "react-jsx",
+    "jsxImportSource": "hono/jsx",
     "noUncheckedIndexedAccess": true,
     "noEmit": true,
     "skipLibCheck": true,

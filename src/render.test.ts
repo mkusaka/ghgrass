@@ -27,12 +27,12 @@ describe("renderSvg", () => {
   test("lays out 53 Sunday-based weeks with one titled cell per day", () => {
     expect(svg.match(/<title>/g)).toHaveLength(365);
     // Last column holds only Sunday 2026-11-15.
-    expect(svg).toContain(`<rect x="707.5" y="16.5" width="9" height="9" rx="2" ry="2" fill="#116329"><title>2548 contributions on Nov 15, 2026</title>`);
+    expect(svg).toContain(`<rect id="d-2026-11-15" x="707.5" y="16.5" width="9" height="9" rx="2" ry="2" fill="#116329"><title>2548 contributions on Nov 15, 2026</title>`);
     expect(svg).toContain('viewBox="0 0 717 122"');
   });
 
   test("shows no counts inside cells, only labels and legend text", () => {
-    const texts = [...svg.matchAll(/<text[^>]*>([^<]*)<\/text>/g)].map((match) => match[1]);
+    const texts = [...svg.matchAll(/<text[^>]*>([^<]*)<\/text>/g)].map((match) => match[1]).filter(Boolean);
     expect(texts).toEqual([
       "Nov", "Dec", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov",
       "Mon", "Wed", "Fri", "Less", "More",
@@ -53,9 +53,10 @@ describe("renderSvg", () => {
   test("carries the total of the last year, from the same date a year ago", () => {
     // The last day is 2026-11-15, so days from 2025-11-15 on count.
     const total = year.reduce((sum, day) => sum + day.count, 0);
-    expect(svg).toContain(`data-total="${total}"`);
+    const metadata = `<metadata id="graph-metadata" data-total="${total}"></metadata>`;
+    expect(svg).toContain(metadata);
     const longer = [{ date: "2025-11-14", count: 1000, level: 4 as Level }, ...year];
-    expect(renderSvg(longer, "light")).toContain(`data-total="${total}"`);
+    expect(renderSvg(longer, "light", start)).toContain(metadata);
   });
 
   test("uses the theme palette", () => {

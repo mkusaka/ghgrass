@@ -4,7 +4,8 @@ import type { Context } from "hono";
 import * as v from "valibot";
 
 import { fetchCalendar, GitHubError, installationToken, yearRange } from "./github";
-import { renderHtml, renderPng, renderSvg } from "./render";
+import { renderHtml, renderPng } from "./render";
+import { progressiveSvg } from "./streaming";
 
 type Bindings = {
   GITHUB_APP_CLIENT_ID: string;
@@ -73,14 +74,19 @@ const app = new Hono<Env>()
           clientId: c.env.GITHUB_APP_CLIENT_ID,
           privateKey: c.env.GITHUB_APP_PRIVATE_KEY,
         });
-        const days = await fetchCalendar(token, username, start, end);
         if (image === "png") {
+          const days = await fetchCalendar(token, username, start, end);
           return c.body(await renderPng(days, theme), 200, { "Content-Type": "image/png", ...CACHE_HEADERS });
         }
-        return c.body(renderSvg(days, theme), 200, {
-          "Content-Type": "image/svg+xml; charset=utf-8",
-          ...CACHE_HEADERS,
-        });
+        const svg = await progressiveSvg(
+          (options) => fetchCalendar(token, username, start, end, options),
+          start,
+          theme,
+          c.req.raw.signal,
+        );
+        const headers = { "Content-Type": "image/svg+xml; charset=utf-8" };
+        // A stream can end abnormally, and an incomplete SVG must never be cached.
+        return c.body(svg as string, 200, typeof svg === "string" ? { ...headers, ...CACHE_HEADERS } : { ...headers, "Cache-Control": "no-store" });
       } catch (error) {
         if (!(error instanceof GitHubError)) throw error;
         if (error.status === 404) return fail(c, 404, "User not found");
