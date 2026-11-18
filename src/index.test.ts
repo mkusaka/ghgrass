@@ -211,7 +211,7 @@ test("streams the SVG uncached when the whole range needs splitting", async () =
   await Promise.all(pending);
   expect(put).toHaveBeenCalledOnce();
   const stored = put.mock.calls[0]![1];
-  expect(stored.headers.get("Cache-Control")).toBe("public, max-age=0");
+  expect(stored.headers.get("Cache-Control")).toBe("public, max-age=30, stale-while-revalidate=3600");
   expect(await stored.text()).toBe(text);
 });
 

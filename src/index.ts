@@ -97,7 +97,11 @@ const app = new Hono<Env>()
             .then((text) =>
               (caches as unknown as { default: Cache }).default.put(
                 c.req.raw,
-                new Response(text, { headers: { ...headers, ...CACHE_HEADERS } }),
+                // The Cache API ignores Cloudflare-CDN-Cache-Control's stale-while-revalidate,
+                // so it goes in Cache-Control here.
+                new Response(text, {
+                  headers: { ...headers, ...CACHE_HEADERS, "Cache-Control": CACHE_HEADERS["Cloudflare-CDN-Cache-Control"] },
+                }),
               ),
             )
             .catch(() => {}),
