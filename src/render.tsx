@@ -230,31 +230,7 @@ const FAVICON = `data:image/svg+xml,${encodeURIComponent(
     .join("")}</svg>`,
 )}`;
 
-/**
- * A phone-sized page that scrolls sideways to the latest week, as on GitHub. It embeds
- * the SVG URL rather than the SVG, so the page needs no data and shares the SVG's cache.
- */
-export function renderHtml(username: string, theme: Theme, origin: string) {
-  const themeQuery = theme === "dark" ? "?theme=dark" : "";
-  const svgUrl = `/api/${username}.svg${themeQuery}`;
-  // A plain link to the other theme's canonical page, so each theme stays cacheable.
-  const toggle = theme === "dark" ? [`/api/${username}`, "☀ Light"] : [`/api/${username}?theme=dark`, "☾ Dark"];
-  return `<!doctype html>
-<html lang="en">
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${escapeXml(username)}'s contributions</title>
-<link rel="icon" href="${FAVICON}">
-<meta property="og:title" content="${escapeXml(username)}'s contributions">
-<meta property="og:description" content="${escapeXml(username)}'s GitHub contribution graph for the last year">
-<meta property="og:type" content="website">
-<meta property="og:site_name" content="ghgrass">
-<meta property="og:image" content="${escapeXml(`${origin}/api/${username}.png${themeQuery}`)}">
-<meta name="twitter:card" content="summary_large_image">
-<style>body{margin:0;padding:16px;background:${themes[theme].page}}header{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px}h2{margin:0;min-height:24px;font:400 16px/24px ${FONT};color:${themes[theme].heading}}a{font:12px ${FONT};color:${themes[theme].text};text-decoration:none;white-space:nowrap}div{overflow-x:auto}object{display:block}</style>
-<header><h2></h2><a href="${escapeXml(toggle[0]!)}">${toggle[1]}</a></header>
-<div><object type="image/svg+xml" data="${escapeXml(svgUrl)}" onload="loaded(this)">${escapeXml(username)}'s contribution graph</object></div>
-<script>
+const HTML_SCRIPT = `
 function loaded(graph) {
   graph.parentNode.scrollLeft = graph.parentNode.scrollWidth;
   // The SVG carries the total, so the page itself needs no data. It is in a trailing
@@ -267,8 +243,42 @@ function loaded(graph) {
 // Taps inside the graph stay in its document; hide its tooltip on taps outside it.
 document.addEventListener("pointerdown", () =>
   document.querySelector("object").contentDocument?.getElementById("tip")?.setAttribute("visibility", "hidden"));
-</script>
-</html>`;
+`;
+
+/**
+ * A phone-sized page that scrolls sideways to the latest week, as on GitHub. It embeds
+ * the SVG URL rather than the SVG, so the page needs no data and shares the SVG's cache.
+ */
+export function renderHtml(username: string, theme: Theme, origin: string) {
+  const themeQuery = theme === "dark" ? "?theme=dark" : "";
+  const svgUrl = `/api/${username}.svg${themeQuery}`;
+  // A plain link to the other theme's canonical page, so each theme stays cacheable.
+  const toggle = theme === "dark" ? [`/api/${username}`, "☀ Light"] : [`/api/${username}?theme=dark`, "☾ Dark"];
+  const colors = themes[theme];
+  const css = `body{margin:0;padding:16px;background:${colors.page}}header{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px}h2{margin:0;min-height:24px;font:400 16px/24px ${FONT};color:${colors.heading}}a{font:12px ${FONT};color:${colors.text};text-decoration:none;white-space:nowrap}div{overflow-x:auto}object{display:block}`;
+  return `<!doctype html>${(
+    <html lang="en">
+      <meta charset="utf-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <title>{username}'s contributions</title>
+      <link rel="icon" href={FAVICON} />
+      <meta property="og:title" content={`${username}'s contributions`} />
+      <meta property="og:description" content={`${username}'s GitHub contribution graph for the last year`} />
+      <meta property="og:type" content="website" />
+      <meta property="og:site_name" content="ghgrass" />
+      <meta property="og:image" content={`${origin}/api/${username}.png${themeQuery}`} />
+      <meta name="twitter:card" content="summary_large_image" />
+      <style dangerouslySetInnerHTML={{ __html: css }} />
+      <header>
+        <h2></h2>
+        <a href={toggle[0]}>{toggle[1]}</a>
+      </header>
+      <div>
+        <object type="image/svg+xml" data={svgUrl} onload="loaded(this)">{username}'s contribution graph</object>
+      </div>
+      <script dangerouslySetInnerHTML={{ __html: HTML_SCRIPT }} />
+    </html>
+  )}`;
 }
 
 // Link previews (Slack, X, ...) can't show SVG, so og:image is this PNG: the HTML page's

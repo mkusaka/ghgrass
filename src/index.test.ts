@@ -70,10 +70,10 @@ test("serves a cacheable HTML page that embeds the SVG URL without calling GitHu
     "public, max-age=600, stale-while-revalidate=3600",
   );
   const html = await response.text();
-  expect(html).toContain('<meta name="viewport" content="width=device-width, initial-scale=1">');
-  expect(html).toContain("<title>octocat's contributions</title>");
+  expect(html).toContain('<meta name="viewport" content="width=device-width, initial-scale=1"/>');
+  expect(html).toContain("<title>octocat&#39;s contributions</title>");
   expect(html).toContain('<link rel="icon" href="data:image/svg+xml,');
-  expect(html).toContain('<meta property="og:image" content="http://localhost/api/octocat.png?theme=dark">');
+  expect(html).toContain('<meta property="og:image" content="http://localhost/api/octocat.png?theme=dark"/>');
   expect(html).toContain("background:#0d1117");
   expect(html).toContain('data="/api/octocat.svg?theme=dark"');
   expect(html).toContain("color:#f0f6fc");
