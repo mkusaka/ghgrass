@@ -81,7 +81,7 @@ the link opens the HTML page, where hovering or tapping a day shows its count:
   matched every level of 206 sampled ranges.
 - Responses are cached by Workers Cache (`cache.enabled`) for 10 minutes and
   served stale for up to an hour while revalidating:
-  `Cloudflare-CDN-Cache-Control: public, max-age=600, stale-while-revalidate=3600`,
+  `Cloudflare-CDN-Cache-Control: public, max-age=30, stale-while-revalidate=3600`,
   `Cache-Control: public, max-age=0`.
 - Colors come from `@primer/primitives` 11.10.0.
 

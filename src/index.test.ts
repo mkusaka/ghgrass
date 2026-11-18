@@ -48,7 +48,7 @@ test("returns the graph as cacheable SVG", async () => {
   expect(response.headers.get("Content-Type")).toBe("image/svg+xml; charset=utf-8");
   expect(response.headers.get("Cache-Control")).toBe("public, max-age=0");
   expect(response.headers.get("Cloudflare-CDN-Cache-Control")).toBe(
-    "public, max-age=600, stale-while-revalidate=3600",
+    "public, max-age=30, stale-while-revalidate=3600",
   );
   expect(await response.text()).toContain("3 contributions on Nov 15, 2026");
 
@@ -67,7 +67,7 @@ test("serves a cacheable HTML page that embeds the SVG URL without calling GitHu
   expect(response.status).toBe(200);
   expect(response.headers.get("Content-Type")).toBe("text/html; charset=UTF-8");
   expect(response.headers.get("Cloudflare-CDN-Cache-Control")).toBe(
-    "public, max-age=600, stale-while-revalidate=3600",
+    "public, max-age=30, stale-while-revalidate=3600",
   );
   const html = await response.text();
   expect(html).toContain('<meta name="viewport" content="width=device-width, initial-scale=1"/>');
