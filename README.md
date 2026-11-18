@@ -73,8 +73,8 @@ the link opens the HTML page, where hovering or tapping a day shows its count:
 - GitHub fails (502/504, timeouts or "Something went wrong") on ranges with many
   contributions. The whole range is tried first (up to 3 times, as it often succeeds on a retry) so GitHub's own
   levels and counts are used; split ranges report higher counts than the profile page.
-  On failure it is bisected, and failing halves are bisected again down to
-  single days (at most 100 requests). Because GitHub computes levels relative to the
+  On failure it is fetched in 4-week chunks, failing chunks in weeks and failing
+  weeks in days (at most 100 requests). Because GitHub computes levels relative to the
   requested range, levels are then recomputed over the whole year with GitHub's
   undocumented rule as reverse-engineered by
   [akerl/githubstats](https://github.com/akerl/githubstats): quarters of the

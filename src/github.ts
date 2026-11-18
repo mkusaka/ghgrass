@@ -4,12 +4,18 @@ const GRAPHQL_URL = "https://api.github.com/graphql";
 const DAY_MS = 86_400_000;
 const TIMEOUT_MS = 10_000;
 // Workers (paid plan) allow 1000 subrequests per invocation; this keeps one graph well
-// inside GitHub's hourly App rate limit and the 30s `waitUntil` window.
+// inside GitHub's hourly App rate limit.
 const MAX_REQUESTS = 100;
 // Only the whole year matches the profile page's counts; split ranges come back higher.
 // The whole year often times out cold and answers in under a second once GitHub has it
-// warmed, so it is tried this many times before splitting.
+// warmed, so it is tried this many times before splitting. Retries get a short timeout:
+// a heavy year takes ~11s every time, and three full timeouts alone would use up the 30s
+// `waitUntil` window that a background refresh runs in.
 const WHOLE_ATTEMPTS = 3;
+const RETRY_TIMEOUT_MS = 2_000;
+// Failing ranges are split into pieces of the next size down. Each level costs one round
+// trip, so three levels (4 weeks, weeks, days) are much faster than bisecting (~9 levels).
+const SPLIT_DAYS = [28, 7, 1];
 
 const QUERY = `query ($login: String!, $from: DateTime!, $to: DateTime!) {
   user(login: $login) {
@@ -126,6 +132,7 @@ async function request(
   start: number,
   end: number,
   signal?: AbortSignal,
+  timeout = TIMEOUT_MS,
 ) {
   let response: Response;
   try {
@@ -140,7 +147,7 @@ async function request(
         query: QUERY,
         variables: { login, from: `${isoDate(start)}T00:00:00Z`, to: `${isoDate(end)}T23:59:59Z` },
       }),
-      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(TIMEOUT_MS)]) : AbortSignal.timeout(TIMEOUT_MS),
+      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(timeout)]) : AbortSignal.timeout(timeout),
     });
   } catch {
     // Timeouts and network errors: heavy ranges often time out on GitHub's side.
@@ -178,8 +185,8 @@ const toDay = (day: ApiDay): Day => ({
  *
  * GitHub's GraphQL API fails (502/504, timeouts or "Something went wrong") on
  * ranges with many contributions. The whole range is tried first so GitHub's own
- * levels can be used (retried, see WHOLE_ATTEMPTS); on failure it is bisected, each failing half again, down to
- * single days.
+ * levels can be used (retried, see WHOLE_ATTEMPTS); on failure it is split into 4-week
+ * chunks, failing chunks into weeks, and failing weeks into days.
  */
 export async function fetchCalendar(
   token: string,
@@ -190,26 +197,27 @@ export async function fetchCalendar(
 ): Promise<Day[]> {
   let requests = 0;
   let fellBack = false;
-  const fetchRange = async (from: number, to: number, retries = 0): Promise<ApiDay[]> => {
+  const fetchRange = async (from: number, to: number, retries = 0, retry = false): Promise<ApiDay[]> => {
     signal?.throwIfAborted();
     if (++requests > MAX_REQUESTS) throw new GitHubError(503);
     try {
-      const days = await request(token, login, from, to, signal);
+      const days = await request(token, login, from, to, signal, retry ? RETRY_TIMEOUT_MS : TIMEOUT_MS);
       if (fellBack) await onChunk?.(days.map(toDay));
       return days;
     } catch (error) {
       signal?.throwIfAborted();
       if (!(error instanceof SplittableError)) throw error;
-      if (retries > 0) return fetchRange(from, to, retries - 1);
+      if (retries > 0) return fetchRange(from, to, retries - 1, true);
       if (from === to) throw new GitHubError(502);
       if (!fellBack) {
         fellBack = true;
         await onFallback?.();
       }
-      // Bisect: the failing half of a failing range is halved again, down to single days.
-      const mid = from + Math.ceil((to - from) / DAY_MS / 2) * DAY_MS;
-      const results = await Promise.all([fetchRange(from, mid - DAY_MS), fetchRange(mid, to)]);
-      return results.flat();
+      const size = (to - from) / DAY_MS + 1;
+      const step = SPLIT_DAYS.find((days) => days < size)! * DAY_MS;
+      const parts: Promise<ApiDay[]>[] = [];
+      for (let a = from; a <= to; a += step) parts.push(fetchRange(a, Math.min(a + step - DAY_MS, to)));
+      return (await Promise.all(parts)).flat();
     }
   };
 

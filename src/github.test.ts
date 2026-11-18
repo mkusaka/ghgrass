@@ -57,14 +57,17 @@ describe("fetchCalendar", () => {
     ["HTTP 502", () => new Response("", { status: 502 })],
     ["a GraphQL error without data", () => Response.json({ errors: [{ message: "Something went wrong" }] })],
   ])("splits failing ranges on %s and recomputes levels", async (_name, failure) => {
-    const { fetchMock, ranges } = stubGitHub(100, failure);
+    const { fetchMock, ranges } = stubGitHub(20, failure);
     const days = await fetchCalendar("token", "octocat", start, end);
-    // The whole year 3 times, then bisected: its two halves, then the four quarters.
-    expect(fetchMock).toHaveBeenCalledTimes(9);
+    // The whole year 3 times, 14 four-week chunks (the last one a single day), then the
+    // 13 failing chunks as 52 weeks.
+    expect(fetchMock).toHaveBeenCalledTimes(3 + 14 + 52);
     expect(ranges.slice(3, 5)).toEqual([
-      ["2025-11-16", "2026-05-16"],
-      ["2026-05-17", "2026-11-15"],
+      ["2025-11-16", "2025-12-13"],
+      ["2025-12-14", "2026-01-10"],
     ]);
+    expect(ranges).toContainEqual(["2026-11-15", "2026-11-15"]);
+    expect(ranges).toContainEqual(["2025-11-16", "2025-11-22"]);
     expect(days.map((day) => day.date)).toEqual(
       Array.from({ length: 365 }, (_, i) => new Date(start + i * DAY_MS).toISOString().slice(0, 10)),
     );
