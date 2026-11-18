@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import type { Context } from "hono";
 import * as v from "valibot";
 
+import type { FetchCalendarOptions } from "./github";
 import { fetchCalendar, GitHubError, installationToken, yearRange } from "./github";
 import { renderHtml, renderPng } from "./render";
 import { progressiveSvg } from "./streaming";
@@ -79,19 +80,18 @@ const app = new Hono<Env>()
         privateKey: c.env.GITHUB_APP_PRIVATE_KEY,
       };
       try {
-        if (image === "png") {
-          const days = await fetchCalendar(await installationToken(credentials), username, start, end);
-          return c.body(await renderPng(days, theme), 200, { "Content-Type": "image/png", ...CACHE_HEADERS });
-        }
-        const headers = { "Content-Type": "image/svg+xml; charset=utf-8" };
+        const headers = { "Content-Type": image === "png" ? "image/png" : "image/svg+xml; charset=utf-8" };
+        // Set when a PNG load had to split the range (an SVG reports that by streaming).
+        let split = false;
         // Not tied to the client's connection: a viewer that gives up early (Camo does)
         // must not stop the fetch, or a slow graph would never be stored.
-        const generate = async () =>
-          progressiveSvg(
-            async (options) => fetchCalendar(await installationToken(credentials), username, start, end, options),
-            start,
-            theme,
-          );
+        const generate = async (): Promise<string | ArrayBuffer | ReadableStream<Uint8Array>> => {
+          const load = async (options: FetchCalendarOptions) =>
+            fetchCalendar(await installationToken(credentials), username, start, end, options);
+          if (image === "svg") return progressiveSvg(load, start, theme);
+          // A PNG can't be drawn incrementally, so it is only sent once complete.
+          return renderPng(await load({ onFallback: () => void (split = true) }), theme);
+        };
 
         // Graphs that needed streaming are kept as a finished copy under a private key.
         // A streamed response is no-store and would evict the edge cache's entry, and the
@@ -99,10 +99,10 @@ const app = new Hono<Env>()
         // cacheable response (which does get it) and refreshed in the background once old.
         const cache = (caches as unknown as { default: Cache }).default;
         const copyKey = new Request(`${url.origin}/copy${canonical}`);
-        const store = (text: string) =>
+        const store = (body: string | ArrayBuffer) =>
           cache.put(
             copyKey,
-            new Response(text, {
+            new Response(body, {
               headers: { ...headers, "Cache-Control": "public, max-age=86400", "X-Generated": String(Date.now()) },
             }),
           );
@@ -113,17 +113,21 @@ const app = new Hono<Env>()
             refreshing.add(canonical);
             c.executionCtx.waitUntil(
               generate()
-                .then((svg) => (typeof svg === "string" ? svg : new Response(svg).text()))
+                .then((body) => (body instanceof ReadableStream ? new Response(body).text() : body))
                 .then(store)
                 .catch(() => {})
                 .finally(() => refreshing.delete(canonical)),
             );
           }
-          return c.body(await copy.text(), 200, { ...headers, ...CACHE_HEADERS });
+          return c.body(await copy.arrayBuffer(), 200, { ...headers, ...CACHE_HEADERS });
         }
 
         const svg = await generate();
-        if (typeof svg === "string") return c.body(svg, 200, { ...headers, ...CACHE_HEADERS });
+        if (!(svg instanceof ReadableStream)) {
+          // A finished body is cacheable as it is; one that needed splitting also gets a copy to refresh from.
+          if (split) c.executionCtx.waitUntil(store(svg));
+          return c.body(svg, 200, { ...headers, ...CACHE_HEADERS });
+        }
 
         // The stream goes out uncached; the copy is stored only if it ends cleanly, so an
         // incomplete SVG is never stored.

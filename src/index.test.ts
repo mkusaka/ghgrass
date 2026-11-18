@@ -269,3 +269,38 @@ test("does not cache a stream that ends abnormally", async () => {
   await Promise.all(pending);
   expect(put).not.toHaveBeenCalled();
 });
+
+test("stores a PNG copy when the range was split, and refreshes it in the background once stale", async () => {
+  vi.useFakeTimers({ now: new Date("2026-11-15T12:00:00Z"), toFake: ["Date"] });
+  let calls = 0;
+  stubGitHub(() => {
+    // The whole year fails all 3 attempts, then every chunk succeeds.
+    if (++calls <= 3) return new Response("", { status: 502 });
+    return Response.json({ data: { user: { contributionsCollection: { contributionCalendar: { weeks: [{ contributionDays: [
+      { date: "2026-11-15", contributionCount: 3, contributionLevel: "FOURTH_QUARTILE" },
+    ] }] } } } } });
+  });
+  const put = vi.fn(async (_request: Request, _response: Response) => {});
+  const pending: Promise<unknown>[] = [];
+  const ctx = { waitUntil: (p: Promise<unknown>) => void pending.push(p), passThroughOnException() {} };
+  vi.stubGlobal("caches", { default: { put, match: async () => undefined } });
+  const response = await app.request("/api/octocat.png?theme=dark", {}, env, ctx as never);
+  const png = new Uint8Array(await response.arrayBuffer());
+  expect(response.headers.get("Cache-Control")).toBe("public, max-age=0");
+  await Promise.all(pending);
+  const [key, stored] = put.mock.calls[0]!;
+  expect(key.url).toBe("http://localhost/copy/api/octocat.png?theme=dark");
+  expect(stored.headers.get("Content-Type")).toBe("image/png");
+  expect(stored.headers.get("Cache-Control")).toBe("public, max-age=86400");
+  expect(new Uint8Array(await stored.arrayBuffer())).toEqual(png);
+
+  // A stale copy is served as is while a fresh render replaces it.
+  calls = 100;
+  const refreshed = vi.fn(async (_request: Request, _response: Response) => {});
+  const old = new Response(png, { headers: { "X-Generated": String(Date.now() - 601_000) } });
+  vi.stubGlobal("caches", { default: { put: refreshed, match: async () => old } });
+  const stale = await app.request("/api/octocat.png?theme=dark", {}, env, ctx as never);
+  expect(new Uint8Array(await stale.arrayBuffer())).toEqual(png);
+  await Promise.all(pending);
+  expect(refreshed).toHaveBeenCalledOnce();
+});

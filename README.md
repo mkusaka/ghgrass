@@ -42,7 +42,7 @@ Error responses are never cached.
 When GitHub fails on the whole year and the graph has to be fetched in pieces, the SVG
 is streamed: cells appear as their chunks arrive, and a trailing `<style>` corrects their
 levels once the year is complete. Such a response is `no-store` and, if a later fetch fails,
-ends without `</svg>`; once it completes, the finished SVG is kept as a copy that later requests are served from (and refreshed from in the background once 10 minutes old). Viewers that buffer (`<img>`, READMEs through Camo) show it only when complete.
+ends without `</svg>`; once it completes, the finished SVG is kept as a copy that later requests are served from (and refreshed from in the background once 10 minutes old). Viewers that buffer (`<img>`, READMEs through Camo) show it only when complete. The PNG cannot be drawn incrementally, so it is sent once whole; when it needed split requests it is kept as a copy in the same way.
 
 ### Example
 
