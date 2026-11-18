@@ -196,10 +196,43 @@ test("streams the SVG uncached when the whole range needs splitting", async () =
       { date: "2026-11-15", contributionCount: 3, contributionLevel: "FOURTH_QUARTILE" },
     ] }] } } } } });
   });
-  const response = await app.request("/api/octocat.svg", {}, env);
+  const put = vi.fn(async (_request: Request, _response: Response) => {});
+  vi.stubGlobal("caches", { default: { put } });
+  const pending: Promise<unknown>[] = [];
+  const ctx = { waitUntil: (p: Promise<unknown>) => void pending.push(p), passThroughOnException() {} };
+  const response = await app.request("/api/octocat.svg", {}, env, ctx as never);
   expect(response.status).toBe(200);
   expect(response.headers.get("Cache-Control")).toBe("no-store");
   const text = await response.text();
   expect(text).toContain('id="d-2026-11-15"');
   expect(text.endsWith("</svg>")).toBe(true);
+
+  // The completed copy is cached with the normal headers.
+  await Promise.all(pending);
+  expect(put).toHaveBeenCalledOnce();
+  const stored = put.mock.calls[0]![1];
+  expect(stored.headers.get("Cache-Control")).toBe("public, max-age=0");
+  expect(await stored.text()).toBe(text);
+});
+
+test("does not cache a stream that ends abnormally", async () => {
+  vi.useFakeTimers({ now: new Date("2026-11-15T12:00:00Z"), toFake: ["Date"] });
+  let calls = 0;
+  stubGitHub(() => {
+    // Whole range fails, one chunk succeeds, the rest fail down to single days.
+    if (++calls === 2) {
+      return Response.json({ data: { user: { contributionsCollection: { contributionCalendar: { weeks: [{ contributionDays: [
+        { date: "2026-11-15", contributionCount: 3, contributionLevel: "FOURTH_QUARTILE" },
+      ] }] } } } } });
+    }
+    return new Response("", { status: 502 });
+  });
+  const put = vi.fn();
+  vi.stubGlobal("caches", { default: { put } });
+  const pending: Promise<unknown>[] = [];
+  const ctx = { waitUntil: (p: Promise<unknown>) => void pending.push(p), passThroughOnException() {} };
+  const response = await app.request("/api/octocat.svg", {}, env, ctx as never);
+  await expect(response.text()).rejects.toThrow();
+  await Promise.all(pending);
+  expect(put).not.toHaveBeenCalled();
 });

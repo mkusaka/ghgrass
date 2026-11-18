@@ -78,15 +78,31 @@ const app = new Hono<Env>()
           const days = await fetchCalendar(token, username, start, end);
           return c.body(await renderPng(days, theme), 200, { "Content-Type": "image/png", ...CACHE_HEADERS });
         }
+        // Not tied to the client's connection: a viewer that gives up early (Camo does)
+        // must not stop the fetch, or a slow graph would never reach the cache.
         const svg = await progressiveSvg(
           (options) => fetchCalendar(token, username, start, end, options),
           start,
           theme,
-          c.req.raw.signal,
         );
         const headers = { "Content-Type": "image/svg+xml; charset=utf-8" };
-        // A stream can end abnormally, and an incomplete SVG must never be cached.
-        return c.body(svg as string, 200, typeof svg === "string" ? { ...headers, ...CACHE_HEADERS } : { ...headers, "Cache-Control": "no-store" });
+        if (typeof svg === "string") return c.body(svg, 200, { ...headers, ...CACHE_HEADERS });
+
+        // The stream goes out uncached; a copy is stored only if it ends cleanly, so an
+        // incomplete SVG never becomes a cache entry.
+        const [body, copy] = svg.tee();
+        c.executionCtx.waitUntil(
+          new Response(copy)
+            .text()
+            .then((text) =>
+              (caches as unknown as { default: Cache }).default.put(
+                c.req.raw,
+                new Response(text, { headers: { ...headers, ...CACHE_HEADERS } }),
+              ),
+            )
+            .catch(() => {}),
+        );
+        return c.body(body, 200, { ...headers, "Cache-Control": "no-store" });
       } catch (error) {
         if (!(error instanceof GitHubError)) throw error;
         if (error.status === 404) return fail(c, 404, "User not found");
