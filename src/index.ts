@@ -18,7 +18,7 @@ type Env = { Bindings: Bindings };
 
 const CACHE_HEADERS = {
   "Cache-Control": "public, max-age=0",
-  "Cloudflare-CDN-Cache-Control": "public, max-age=30, stale-while-revalidate=3600",
+  "Cloudflare-CDN-Cache-Control": "public, max-age=600, stale-while-revalidate=3600",
 };
 
 const params = v.object({
