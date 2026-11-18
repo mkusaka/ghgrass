@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 
-import type { FetchCalendarOptions } from "./github";
+import { relevel, type FetchCalendarOptions } from "./github";
 import { renderSvg } from "./render";
 import { progressiveSvg } from "./streaming";
 import type { Day, Level } from "./types";
@@ -64,4 +64,24 @@ test("errors the stream without a closing tag when a fetch fails midway", async 
 
 test("rejects before streaming starts", async () => {
   await expect(progressiveSvg(async () => Promise.reject(new Error("early")), start, "light")).rejects.toThrow("early");
+});
+
+test("draws early chunks with levels from the data so far and recolors them as more arrives", async () => {
+  const low = year.slice(0, 28).map((day) => ({ ...day, count: 1 }));
+  const high = year.slice(28, 56).map((day) => ({ ...day, count: 100 }));
+  const svg = await progressiveSvg(
+    async ({ onFallback, onChunk }: FetchCalendarOptions) => {
+      await onFallback?.();
+      await onChunk?.(low);
+      await onChunk?.(high);
+      return relevel([...low, ...high]);
+    },
+    start,
+    "light",
+  );
+  const text = await read(svg as ReadableStream<Uint8Array>);
+  // Alone, count 1 is the maximum, so it starts at the top level; the later chunk demotes it.
+  expect(text).toMatch(new RegExp(`id="d-${low[0]!.date}"[^>]*fill="#116329"`));
+  expect(text).toMatch(new RegExp(`#d-${low[0]!.date}[^{]*\\{fill:#eff2f5|#d-${low[0]!.date}[^{]*\\{fill:#aceebb`));
+  expect(text.endsWith("</svg>")).toBe(true);
 });

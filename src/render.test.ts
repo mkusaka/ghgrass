@@ -27,7 +27,7 @@ describe("renderSvg", () => {
   test("lays out 53 Sunday-based weeks with one titled cell per day", () => {
     expect(svg.match(/<title>/g)).toHaveLength(365);
     // Last column holds only Sunday 2026-11-15.
-    expect(svg).toContain(`<rect id="d-2026-11-15" x="707.5" y="16.5" width="9" height="9" rx="2" ry="2" fill="#116329"><title>2548 contributions on Nov 15, 2026</title>`);
+    expect(svg).toMatch(/<rect id="d-2026-11-15" class="g a\d+" x="707.5" y="16.5" width="9" height="9" rx="2" ry="2" fill="#116329"><title>2548 contributions on Nov 15, 2026<\/title>/);
     expect(svg).toContain('viewBox="0 0 717 122"');
   });
 
@@ -57,6 +57,15 @@ describe("renderSvg", () => {
     expect(svg).toContain(metadata);
     const longer = [{ date: "2025-11-14", count: 1000, level: 4 as Level }, ...year];
     expect(renderSvg(longer, "light", start)).toContain(metadata);
+  });
+
+  test("fades cells in by date, in a stable scattered order, unless motion is reduced", () => {
+    expect(svg).toContain("@media (prefers-reduced-motion:no-preference){@keyframes f");
+    const classes = [...svg.matchAll(/<rect id="d-[\d-]+" class="g (a\d+)"/g)].map((m) => m[1]);
+    expect(classes).toHaveLength(365);
+    expect(new Set(classes).size).toBe(20);
+    expect(classes.slice(0, 20)).not.toEqual([...classes.slice(0, 20)].sort());
+    expect(renderSvg(year, "light")).toBe(svg);
   });
 
   test("uses the theme palette", () => {

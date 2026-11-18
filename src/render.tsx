@@ -122,11 +122,22 @@ const heading = (total: number) =>
 
 type CellProps = { x: number; y: number; theme: Theme; level: number; day?: Day };
 
+// Cells fade in with one of 20 delays picked by date, so they appear in a scattered but
+// stable order (the output stays cacheable). Pure CSS: it runs in <img> and <object> too.
+const FADE_STEPS = 20;
+const fadeClass = (date: string) =>
+  `g a${(Math.imul(Math.round(toMs(date) / DAY_MS), 2654435761) >>> 16) % FADE_STEPS}`;
+const FADE_CSS =
+  "@media (prefers-reduced-motion:no-preference){@keyframes f{from{opacity:0}}.g{animation:f .4s backwards}" +
+  Array.from({ length: FADE_STEPS }, (_, i) => `.a${i}{animation-delay:${i * 60}ms}`).join("") +
+  "}";
+
 // Inset by half the stroke so the 1px border stays inside the cell, like GitHub's outline.
 function GrassCell({ day, x, y, theme, level }: CellProps) {
   return (
     <rect
       id={day && `d-${day.date}`}
+      class={day && fadeClass(day.date)}
       x={x + 0.5}
       y={y + 0.5}
       width={CELL - 1}
@@ -202,6 +213,7 @@ export function svgHeader(layout: Layout, theme: Theme) {
   const colors = themes[theme];
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">\n` +
+    `<style>${FADE_CSS}</style>\n` +
     String(<GraphLabels layout={layout} theme={theme} />) +
     `\n<g stroke="${colors.border}" stroke-opacity="${colors.borderOpacity}" stroke-width="1" shape-rendering="geometricPrecision">` +
     String(<GraphLegend layout={layout} theme={theme} />)
